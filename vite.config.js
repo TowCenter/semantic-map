@@ -11,7 +11,7 @@ export default defineConfig({
       "$routes": path.resolve("./src/routes"),
     }
   },
-  base: '/semantic-maps/', // Ensure this matches your repo name EXACTLY
+  base: '/semantic-map/', // Ensure this matches your repo name EXACTLY
   build: {
     outDir: 'dist' // Use 'dist' since you're using the `gh-pages` branch
   }
