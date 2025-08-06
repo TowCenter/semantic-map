@@ -256,7 +256,7 @@
       <label for="file-upload">📁 Upload CSV:</label>
       <input id="file-upload" type="file" accept=".csv" on:change={handleFileUpload} />
       
-      <label for="search-input">🔍 Search Title:</label>
+      <label for="search-input">🔍 Search Text:</label>
       <input id="search-input" type="text" placeholder="Search..." on:input={handleSearch} />
 
       {#if columns.length}

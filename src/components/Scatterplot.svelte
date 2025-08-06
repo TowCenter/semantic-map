@@ -93,7 +93,7 @@
       // });
 
       data.forEach(d => {
-        const matchesSearch = searchQuery && d.title?.toLowerCase().includes(searchQuery.toLowerCase());
+        const matchesSearch = searchQuery && (d.text?.toLowerCase().includes(searchQuery.toLowerCase()) || d.title?.toLowerCase().includes(searchQuery.toLowerCase()));
         const isHighlighted = highlightedSet.has(d.id) || matchesSearch;
         const isSelected = selectedValues.has(d[domainColumn]);
         const isInDateRange = (!startDate || d.date >= startDate) && 
