@@ -223,7 +223,9 @@
 <div class="container">
   <div class="title-section">
     <h1 class="title">Interactive Semantic Map [DEMO]</h1>
-    <p class="subtitle">The default semantic map contains data from three organizations in North Carolina. <a href = "https://peacemakeronline.com/">Carolina Peacemaker</a> and <a href = "https://borderbelt.org">Border Belt</a> are local news organizations and <a href= "https://www.nccoast.org/about-us/">NC Coastal Federation</a> is a nonprofit focused on coastal restoration.</p>
+    <p class="subtitle">
+      Each dot in this semantic map represents an article. When the dots are closer together, the articles are similar in meaning.
+    </p>
   </div>
 
   <div class="content">
