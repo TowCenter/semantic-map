@@ -241,9 +241,6 @@
               By analyzing the relationships between articles, these maps can reveal patterns and clusters in the data.
             </p>
             <p>
-              Each dot in this semantic map represents an article. When the dots are closer together, the articles are similar in meaning.
-            </p>
-            <p>
               Newsrooms can use semantic maps to:
             </p>
             <ul>
