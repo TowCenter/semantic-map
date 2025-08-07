@@ -26,6 +26,11 @@
 <div class="detail-card">
   {#if hoveredData}
   <h1>{hoveredData.title}</h1>
+  {#if hoveredData.url}
+    <div class="url-link">
+      <a href={hoveredData.url} target="_blank" rel="noopener noreferrer">{hoveredData.url}</a>
+    </div>
+  {/if}
   <span style="background: {colorScale(hoveredData[domainColumn])};">
       {hoveredData[domainColumn]}</span>
   <h2>{hoveredData.date.toISOString().split('T')[0]}</h2>  
@@ -63,7 +68,6 @@
       font-weight: 400;
       margin-bottom: 6px;
       width: 80%;
-      margin-bottom: 10px;
       }
 
   h2 {
@@ -79,6 +83,7 @@
       color: rgba(0, 0, 0, 0.7);
       color: white;
       margin-bottom: 10px;
+      margin-top: 10px;
       }
 
   p {
