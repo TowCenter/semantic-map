@@ -33,7 +33,7 @@
   $: endPercent = allDates.length > 1 ? (endDateIndex / (allDates.length - 1)) * 100 : 100;
 
   onMount(async () => {
-    const response = await fetch('/semantic-maps/data.csv');
+    const response = await fetch('/public/data.csv');
     const csvText = await response.text();
     parseCSV(csvText);
 
