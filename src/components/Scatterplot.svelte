@@ -37,6 +37,20 @@
     let zoomCenter = { x: 0, y: 0 };
     $: highlightedSet = new Set(highlightedData.map(d => d.id));
 
+    // Helper function to check if text matches search query (supports regex)
+    function matchesSearchQuery(text, query) {
+        if (!query || !text) return false;
+        
+        try {
+            // Try to use the query as a regex pattern
+            const regex = new RegExp(query, 'i'); // case-insensitive
+            return regex.test(text);
+        } catch (e) {
+            // If regex is invalid, fall back to simple string search
+            return text.toLowerCase().includes(query.toLowerCase());
+        }
+    }
+
 
     
     $: innerWidth = containerWidth - margin.left - margin.right;
@@ -94,7 +108,10 @@
       // });
 
       data.forEach(d => {
-        const matchesSearch = searchQuery && (d.text?.toLowerCase().includes(searchQuery.toLowerCase()) || d.title?.toLowerCase().includes(searchQuery.toLowerCase()));
+        const matchesSearch = searchQuery && (
+            matchesSearchQuery(d.text, searchQuery) || 
+            matchesSearchQuery(d.title, searchQuery)
+        );
         const isHighlighted = highlightedSet.has(d.id) || matchesSearch;
         const isSelected = selectedValues.has(d[domainColumn]);
         const isInDateRange = (!startDate || d.date >= startDate) && 
@@ -280,7 +297,10 @@
         const isInRange = Math.sqrt(dx * dx + dy * dy) < radius + 3;
 
         // Check if point is currently highlighted based on filters
-        const matchesSearch = searchQuery && d.title?.toLowerCase().includes(searchQuery.toLowerCase());
+        const matchesSearch = searchQuery && (
+            matchesSearchQuery(d.text, searchQuery) || 
+            matchesSearchQuery(d.title, searchQuery)
+        );
         const isHighlighted = highlightedSet.has(d.id) || matchesSearch;
         const isSelected = selectedValues.has(d[domainColumn]);
         const isInDateRange = (!startDate || d.date >= startDate) && 
@@ -334,7 +354,10 @@
         const isInRange = Math.sqrt(dx * dx + dy * dy) < radius + 3;
 
         // Check if point is currently highlighted based on filters
-        const matchesSearch = searchQuery && d.title?.toLowerCase().includes(searchQuery.toLowerCase());
+        const matchesSearch = searchQuery && (
+            matchesSearchQuery(d.text, searchQuery) || 
+            matchesSearchQuery(d.title, searchQuery)
+        );
         const isHighlighted = highlightedSet.has(d.id) || matchesSearch;
         const isSelected = selectedValues.has(d[domainColumn]);
         const isInDateRange = (!startDate || d.date >= startDate) && 
