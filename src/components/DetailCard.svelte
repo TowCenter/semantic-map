@@ -28,11 +28,6 @@
 <div class="detail-card" style="left: {posX}px; top: {posY}px;">
   {#if hoveredData}
   <h1>{hoveredData.title}</h1>
-  {#if hoveredData.url}
-    <div class="url-link">
-      <a href={hoveredData.url} target="_blank" rel="noopener noreferrer">{hoveredData.url}</a>
-    </div>
-  {/if}
   <span style="background: {colorScale(hoveredData[domainColumn])};">
       {hoveredData[domainColumn]}</span>
   <h2>{hoveredData.date.toISOString().split('T')[0]}</h2>  

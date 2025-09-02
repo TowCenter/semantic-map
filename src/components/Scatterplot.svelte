@@ -19,7 +19,7 @@
 
     let annotations = [
         { x: 60, y: 140, radius: 40, label: "Articles about motor vehicle crashes.", label_x: -50, label_y: 130 },
-        { x: 720, y: 320, radius: 50, label: "Sports Articles", label_x: -50, label_y: -100 }
+        { x: 970, y: 320, radius: 70, label: "Sports Articles", label_x: -50, label_y: -100 }
     ];
 
   let canvas;
@@ -120,7 +120,7 @@
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
 
-    function draw() {
+  function draw() {
       if (!ctx || !data.length) return;
 
       ctx.clearRect(0, 0, containerWidth, containerHeight);
@@ -297,6 +297,9 @@
       ctx.setLineDash([]); // Reset line dash
 
       if (hoveredData) {
+        // Compute hovered point position in world space
+        const baseX = margin.left + xScale(hoveredData.x);
+        const baseY = margin.top + yScale(hoveredData.y);
         ctx.beginPath();
         ctx.arc(baseX, baseY, Math.max(0.5, radius / t.k), 0, Math.PI * 2);
         ctx.fillStyle = colorScale(hoveredData[domainColumn]);
@@ -307,7 +310,7 @@
         ctx.stroke();
 
         // Compute tooltip screen position taking zoom into account
-        const [zx, zy] = [t.applyX(baseX), t.applyY(baseY)];
+  const [zx, zy] = [t.applyX(baseX), t.applyY(baseY)];
 
         // Prefer to the right; flip if near right edge
   let tx = zx + 12; // offset from point
@@ -328,62 +331,7 @@
       ctx.restore();
     }
     
-    function handleClick(event) {
-      const rect = canvas.getBoundingClientRect();
-      
-      // Calculate scaling ratio between internal canvas dimensions and displayed dimensions
-      const scaleX = containerWidth / rect.width;
-      const scaleY = containerHeight / rect.height;
-      
-      // Adjust mouse coordinates based on the scaling ratio
-      const mouseX = (event.clientX - rect.left) * scaleX - margin.left;
-      const mouseY = (event.clientY - rect.top) * scaleY - margin.top;
-    
-      const adjustedX = (mouseX - zoomCenter.x) / zoomScale + zoomCenter.x;
-      const adjustedY = (mouseY - zoomCenter.y) / zoomScale + zoomCenter.y;
-    
-      const foundData = data.find(d => {
-        const dx = xScale(d.x) - adjustedX;
-        const dy = yScale(d.y) - adjustedY;
-        const isInRange = Math.sqrt(dx * dx + dy * dy) < radius + 3;
-
-        // Check if point is currently highlighted based on filters
-        const matchesSearch = searchQuery && (
-            matchesSearchQuery(d.text, searchQuery) || 
-            matchesSearchQuery(d.title, searchQuery)
-        );
-        const isHighlighted = highlightedSet.has(d.id) || matchesSearch;
-        const isSelected = selectedValues.has(d[domainColumn]);
-        const isInDateRange = (!startDate || d.date >= startDate) && 
-                             (!endDate || d.date <= endDate);
-        const isFullDateRange = startDate?.getTime() === Math.min(...data.map(d => d.date.getTime())) &&
-                               endDate?.getTime() === Math.max(...data.map(d => d.date.getTime()));
-
-        // Allow clicking in default state or if point matches filters
-        const isDefaultState = selectedValues.size === 0 || 
-                             selectedValues.size === new Set(data.map(d => d[domainColumn])).size;
-        const isVisible = isDefaultState || 
-                         ((isHighlighted || isSelected) && isInDateRange && !isFullDateRange) ||
-                         (isInDateRange && !isFullDateRange && selectedValues.size === 0) ||
-                         ((isHighlighted || isSelected) && isFullDateRange);
-
-        return isInRange && isVisible;
-      });
-
-      if (foundData) {
-        // Toggle clicked state - if clicking the same article, unselect it
-        if (clickedData && clickedData.id === foundData.id) {
-          clickedData = null;
-        } else {
-          clickedData = foundData;
-        }
-      } else {
-        // Click on empty area clears selection
-        clickedData = null;
-      }
-
-      draw();
-    }
+  // Removed stale click handler from pre d3-zoom implementation
     
   function handleMouseMove(event) {
       const rect = canvas.getBoundingClientRect();
@@ -539,7 +487,7 @@
       on:click={handleClick}
     ></canvas>
     {#if hoveredData}
-      <DetailCard {hoveredData} {data} {domainColumn} {colorScale} />
+      <DetailCard {hoveredData} {data} {domainColumn} {colorScale} posX={tooltipX} posY={tooltipY} />
     {/if}
 </div>
 
