@@ -21,7 +21,8 @@
         { x: 720, y: 170, radius: 50, label: "Only Carolina Peacemaker seems to be publishing about personal health.", label_x: -100, label_y: 130 }
     ];
 
-    let canvas;
+  let canvas;
+  let containerEl; // wrapper element whose size controls the canvas
     let ctx;
     
     let containerWidth = 800;
@@ -35,32 +36,77 @@
     let zoomScale = 1;
     let zoomCenter = { x: 0, y: 0 };
     $: highlightedSet = new Set(highlightedData.map(d => d.id));
+  $: uniqueDomainCount = new Set(data.map(d => d[domainColumn])).size;
+
+    // Tooltip position in CSS pixels within the chart container
+    let tooltipX = 0;
+    let tooltipY = 0;
+    const TOOLTIP_MAX_W = 280; // px, used for simple boundary checks
+    const TOOLTIP_H = 160;     // approximate height for clamping
 
 
     
     $: innerWidth = containerWidth - margin.left - margin.right;
     $: innerHeight = containerHeight - margin.top - margin.bottom;
     
+    // Guard scales against degenerate domains
+    $: xDomainRaw = [min(data, d => d.x), max(data, d => d.x)];
+    $: xDomain = (xDomainRaw[0] === xDomainRaw[1])
+      ? [xDomainRaw[0] - 1, xDomainRaw[1] + 1]
+      : xDomainRaw;
     $: xScale = scaleLinear()
-      .domain([min(data, d => d.x), max(data, d => d.x)])
+      .domain(xDomain)
       .range([0, innerWidth]);
     
+    $: yDomainRaw = [min(data, d => d.y), max(data, d => d.y)];
+    $: yDomain = (yDomainRaw[0] === yDomainRaw[1])
+      ? [yDomainRaw[0] - 1, yDomainRaw[1] + 1]
+      : yDomainRaw;
     $: yScale = scaleLinear()
-      .domain([min(data, d => d.y), max(data, d => d.y)])
+      .domain(yDomain)
       .range([innerHeight, 0]);
     
-    const colorScale = scaleOrdinal()
-      .domain([...new Set(data.map(d => d[domainColumn]))])
-      .range(schemeCategory10);
+    // Reactive color scale to follow data and domainColumn changes
+    let colorScale;
+    $: colorScale = scaleOrdinal(schemeCategory10)
+      .domain(
+        domainColumn
+          ? [...new Set(data.map(d => d[domainColumn]).filter(v => v !== undefined && v !== null && v !== ''))]
+          : []
+      );
+
+    // Precompute date bounds and whether full range is selected
+    $: minDate = data.length ? new Date(Math.min(...data.map(d => d.date.getTime()))) : null;
+    $: maxDate = data.length ? new Date(Math.max(...data.map(d => d.date.getTime()))) : null;
+    $: isFullDateRange = !!(
+      startDate && endDate && minDate && maxDate &&
+      startDate.getTime() === minDate.getTime() &&
+      endDate.getTime() === maxDate.getTime()
+    );
     
+    // HiDPI setup and responsive sizing based on container element
+    let dpr = 1;
+    function setupCanvasDPI() {
+      if (!canvas || !containerEl) return;
+      const rect = containerEl.getBoundingClientRect();
+      // Keep containerWidth/Height in CSS pixels to sync scales and mouse events
+      if (rect.width > 0 && rect.height > 0) {
+        containerWidth = Math.floor(rect.width);
+        containerHeight = Math.floor(rect.height);
+      }
+      dpr = Math.max(window.devicePixelRatio || 1, 1);
+      // Visually fill container; internal pixel size scaled for crispness
+      canvas.style.width = '100%';
+      canvas.style.height = '100%';
+      canvas.width = Math.max(1, Math.floor(containerWidth * dpr));
+      canvas.height = Math.max(1, Math.floor(containerHeight * dpr));
+      ctx = canvas.getContext('2d');
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+
     function draw() {
       if (!ctx || !data.length) return;
-      
-      // Check if full date range is selected
-      const isFullDateRange = startDate?.getTime() === Math.min(...data.map(d => d.date.getTime())) &&
-                             endDate?.getTime() === Math.max(...data.map(d => d.date.getTime()));
 
-                             
       ctx.clearRect(0, 0, containerWidth, containerHeight);
       ctx.save();
       ctx.translate(zoomCenter.x, zoomCenter.y);
@@ -93,7 +139,10 @@
       // });
 
       data.forEach(d => {
-        const matchesSearch = searchQuery && (d.text?.toLowerCase().includes(searchQuery.toLowerCase()) || d.title?.toLowerCase().includes(searchQuery.toLowerCase()));
+        const matchesSearch = searchQuery && (
+          d.text?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          d.title?.toLowerCase().includes(searchQuery.toLowerCase())
+        );
         const isHighlighted = highlightedSet.has(d.id) || matchesSearch;
         const isSelected = selectedValues.has(d[domainColumn]);
         const isInDateRange = (!startDate || d.date >= startDate) && 
@@ -118,7 +167,8 @@
           ctx.globalAlpha = opacity * 0.2;
         }
         
-        ctx.fill();
+  ctx.fill();
+  ctx.globalAlpha = 1; // reset for next operations
       });
 
 
@@ -233,20 +283,43 @@
       ctx.setLineDash([]); // Reset line dash
 
       if (hoveredData) {
+        const baseX = margin.left + xScale(hoveredData.x);
+        const baseY = margin.top + yScale(hoveredData.y);
+
+        // Draw the highlighted point on top
         ctx.beginPath();
-        ctx.arc(margin.left + xScale(hoveredData.x), margin.top + yScale(hoveredData.y), radius, 0, Math.PI * 2);
+        ctx.arc(baseX, baseY, radius, 0, Math.PI * 2);
         ctx.fillStyle = colorScale(hoveredData[domainColumn]);
         ctx.globalAlpha = 1;
         ctx.fill();
         ctx.strokeStyle = 'black';
         ctx.lineWidth = 2;
         ctx.stroke();
+
+        // Compute tooltip screen position taking zoom into account
+        const zx = zoomCenter.x + (baseX - zoomCenter.x) * zoomScale;
+        const zy = zoomCenter.y + (baseY - zoomCenter.y) * zoomScale;
+
+        // Prefer to the right; flip if near right edge
+        let tx = zx + 12; // offset from point
+        if (tx + TOOLTIP_MAX_W > containerWidth - margin.right) {
+          tx = zx - 12 - TOOLTIP_MAX_W;
+        }
+
+        // Vertical placement and clamping
+        let ty = zy - TOOLTIP_H * 0.5; // center vertically around point
+        const topBound = margin.top + 8;
+        const bottomBound = containerHeight - margin.bottom - (TOOLTIP_H + 8);
+        ty = Math.max(topBound, Math.min(ty, bottomBound));
+
+        tooltipX = tx;
+        tooltipY = ty;
       }
 
       ctx.restore();
     }
     
-    function handleMouseMove(event) {
+  function handleMouseMove(event) {
       const rect = canvas.getBoundingClientRect();
       
       // Calculate scaling ratio between internal canvas dimensions and displayed dimensions
@@ -266,17 +339,18 @@
         const isInRange = Math.sqrt(dx * dx + dy * dy) < radius + 3;
 
         // Check if point is currently highlighted based on filters
-        const matchesSearch = searchQuery && d.title?.toLowerCase().includes(searchQuery.toLowerCase());
+        const matchesSearch = searchQuery && (
+          d.text?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          d.title?.toLowerCase().includes(searchQuery.toLowerCase())
+        );
         const isHighlighted = highlightedSet.has(d.id) || matchesSearch;
         const isSelected = selectedValues.has(d[domainColumn]);
         const isInDateRange = (!startDate || d.date >= startDate) && 
                              (!endDate || d.date <= endDate);
-        const isFullDateRange = startDate?.getTime() === Math.min(...data.map(d => d.date.getTime())) &&
-                               endDate?.getTime() === Math.max(...data.map(d => d.date.getTime()));
 
         // Allow hovering in default state or if point matches filters
         const isDefaultState = selectedValues.size === 0 || 
-                             selectedValues.size === new Set(data.map(d => d[domainColumn])).size;
+                             selectedValues.size === uniqueDomainCount;
         const isVisible = isDefaultState || 
                          ((isHighlighted || isSelected) && isInDateRange && !isFullDateRange) ||
                          (isInDateRange && !isFullDateRange && selectedValues.size === 0) ||
@@ -288,12 +362,58 @@
       if (foundData) {
         hoveredData = foundData;
         lastHoveredData = foundData;
+        // indicate interactivity
+        canvas.style.cursor = 'pointer';
       } else {
         hoveredData = null;
         lastHoveredData = null;
+        canvas.style.cursor = 'crosshair';
       }
 
       draw();
+    }
+
+    function handleClick(event) {
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = containerWidth / rect.width;
+      const scaleY = containerHeight / rect.height;
+      const mouseX = (event.clientX - rect.left) * scaleX - margin.left;
+      const mouseY = (event.clientY - rect.top) * scaleY - margin.top;
+      const adjustedX = (mouseX - zoomCenter.x) / zoomScale + zoomCenter.x;
+      const adjustedY = (mouseY - zoomCenter.y) / zoomScale + zoomCenter.y;
+
+      const foundData = data.find(d => {
+        const dx = xScale(d.x) - adjustedX;
+        const dy = yScale(d.y) - adjustedY;
+        const isInRange = Math.sqrt(dx * dx + dy * dy) < radius + 3;
+
+        const matchesSearch = searchQuery && (
+          d.text?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          d.title?.toLowerCase().includes(searchQuery.toLowerCase())
+        );
+        const isHighlighted = highlightedSet.has(d.id) || matchesSearch;
+        const isSelected = selectedValues.has(d[domainColumn]);
+        const isInDateRange = (!startDate || d.date >= startDate) && 
+                             (!endDate || d.date <= endDate);
+
+        const isDefaultState = selectedValues.size === 0 || 
+                             selectedValues.size === uniqueDomainCount;
+        const isVisible = isDefaultState || 
+                         ((isHighlighted || isSelected) && isInDateRange && !isFullDateRange) ||
+                         (isInDateRange && !isFullDateRange && selectedValues.size === 0) ||
+                         ((isHighlighted || isSelected) && isFullDateRange);
+
+        return isInRange && isVisible;
+      });
+
+      if (!foundData) return;
+
+      // Try common link fields
+      const url = foundData.url || foundData.link || foundData.href || foundData.permalink;
+      if (url && typeof window !== 'undefined') {
+        // open in new tab safely
+        window.open(url, '_blank', 'noopener,noreferrer');
+      }
     }
     
     function handleMouseLeave() {
@@ -301,37 +421,46 @@
       draw();
     }
     
+  let resizeObserver;
     onMount(() => {
       ctx = canvas.getContext('2d');
+      setupCanvasDPI();
+      // Observe size changes for responsiveness / DPR changes
+      if (window.ResizeObserver) {
+    resizeObserver = new ResizeObserver(() => {
+          setupCanvasDPI();
+          draw();
+        });
+    resizeObserver.observe(containerEl);
+      }
       draw();
+      return () => {
+        if (resizeObserver) resizeObserver.disconnect();
+      };
     });
     
-    $: if (ctx && data.length) {
-        draw();
-    }
-    
     $: if (ctx) {
-        opacity, selectedValues, searchQuery, showAnnotations, domainColumn, startDate, endDate; // Watch these props
-        if (data.length) draw(); // Redraw when any of these change
+      // Redraw when these change and there is data
+      data, opacity, selectedValues, searchQuery, showAnnotations, domainColumn, startDate, endDate, innerWidth, innerHeight, xScale, yScale, isFullDateRange;
+      if (data.length) draw();
     }
 </script>
 
-<div class="chart-container">
+<div class="chart-container" bind:this={containerEl}>
     <canvas
       bind:this={canvas}
-      width={containerWidth}
-      height={containerHeight}
       on:mousemove={handleMouseMove}
       on:mouseleave={handleMouseLeave}
+  on:click={handleClick}
     ></canvas>
     {#if hoveredData}
-      <DetailCard {hoveredData} {data} {domainColumn} {colorScale} />
+      <DetailCard {hoveredData} {data} {domainColumn} {colorScale} posX={tooltipX} posY={tooltipY} />
     {/if}
 </div>
 
 <style>
     .chart-container {
-      position: relative;
+      position: relative; /* anchor for absolutely-positioned tooltip */
       display: flex;
       justify-content: center;
       align-items: center;
@@ -344,7 +473,8 @@
       cursor: crosshair;
       border-radius: 8px;
       background-color: white;
-      max-width: 100%;
-      height: auto;
+      width: 100%;
+      height: 100%;
+      display: block;
     }
 </style>

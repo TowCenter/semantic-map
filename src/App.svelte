@@ -223,7 +223,6 @@
 <div class="container">
   <div class="title-section">
     <h1 class="title">Interactive Semantic Map [DEMO]</h1>
-    <p class="subtitle">The default semantic map contains data from three organizations in North Carolina. <a href = "https://peacemakeronline.com/">Carolina Peacemaker</a> and <a href = "https://borderbelt.org">Border Belt</a> are local news organizations and <a href= "https://www.nccoast.org/about-us/">NC Coastal Federation</a> is a nonprofit focused on coastal restoration.</p>
   </div>
 
   <div class="content">
@@ -330,19 +329,28 @@
           {endDate}      
         />
       {:else}
-        <p>Loading data...</p>
+        <p>Please upload a CSV</p>
       {/if}
     </div>
   </div>
 </div>
 
 <style>
+  /* Make the overall page non-scrollable */
+  :global(html, body, #app) {
+    height: 100%;
+    overflow: hidden;
+  }
+
   .container {
     padding: 1rem;
     display: flex;
     flex-direction: column;
     gap: 1rem;
     font-family: 'Inter', sans-serif;
+    height: 100%; /* fill viewport */
+    overflow: hidden; /* prevent page scroll */
+  box-sizing: border-box; /* include padding in height to avoid clipping */
   }
 
   .title-section {
@@ -355,18 +363,15 @@
     margin-bottom: 0.5rem;
   }
 
-  .subtitle {
-    font-size: 1.1rem;
-    color: #666;
-    width: 60%;
-    margin: 0 auto;
-    line-height: 1.5;
-  }
+  /* removed unused .subtitle style */
 
   .content {
     display: flex;
     gap: 1.5rem;
     align-items: flex-start; /* Align items at the top */
+  flex: 1;           /* take remaining height below the title */
+  min-height: 0;     /* allow children to shrink */
+  overflow: hidden;  /* no page scroll from content */
   }
 
   .filter-panel {
@@ -377,10 +382,11 @@
     display: flex;
     flex-direction: column;
     gap: 1rem;
-    max-height: 100vh; 
-    position: sticky; 
-    overflow: auto;
-    top: 1rem; 
+    height: 100%;     /* fill the content column height */
+    overflow: auto;   /* panel itself scrolls */
+  box-sizing: border-box; /* keep padding within allotted height */
+  -webkit-overflow-scrolling: touch; /* smoother scrolling on macOS/iOS */
+  overscroll-behavior: contain; /* keep scroll events within the panel */
   }
 
   .filter-panel label {
@@ -411,15 +417,17 @@
   }
 
   .scatterplot-container {
-    flex-grow: 1;
+    flex: 1;          /* take remaining width next to panel */
     display: flex;
     justify-content: center;
     align-items: center;
     background: #fff;
     border-radius: 10px;
-    min-height: 500px;
+    height: 100%;     /* fill vertical space in content */
+    min-height: 0;    /* allow to shrink with viewport */
     padding: 1rem;
     /* box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.05); */
+  box-sizing: border-box; /* ensure padding doesn't cause vertical overflow */
   }
 
   .date-controls label {

@@ -7,6 +7,8 @@
   export let domainColumn;
   export let data;
   export let colorScale;
+  export let posX = 0; // absolute position inside chart container
+  export let posY = 0;
   
   let filteredData = [];
   let dates = [];
@@ -23,7 +25,7 @@
   
 </script>
 
-<div class="detail-card">
+<div class="detail-card" style="left: {posX}px; top: {posY}px;">
   {#if hoveredData}
   <h1>{hoveredData.title}</h1>
   <span style="background: {colorScale(hoveredData[domainColumn])};">
@@ -37,17 +39,18 @@
 
 <style>
   .detail-card {
-    flex: 1;
-    padding: 15px;
-    margin-right: 30px;
-    margin-top: 20px;
-    border-top: 1px solid rgba(0, 0, 0, 1);
-    /* box-shadow: 0 2px 5px rgba(0,0,0,0.3); */
-    height: fit-content;
-    max-height: 500px;
-    max-width: 800px;
+    position: absolute;
+    padding: 10px 12px;
+    border: 1px solid rgba(0, 0, 0, 0.15);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.98);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+    max-width: 280px;
+    max-height: 50vh;
     overflow-y: auto;
-    line-height: 1.5;
+    line-height: 1.45;
+    pointer-events: none; /* don't block hover on canvas */
+    z-index: 10;
   }
 
 
@@ -59,31 +62,30 @@
       }
 
   h1 {
-      font-size: 1.25rem;
-      font-weight: 400;
+      font-size: 0.95rem;
+      font-weight: 600;
       margin-bottom: 6px;
-      width: 80%;
-      margin-bottom: 10px;
       }
 
   h2 {
-      font-size: 1rem;
+      font-size: 0.78rem;
       text-transform: uppercase;
+      color: #555;
       }
 
   span {
-      padding: 6px 6px;
+      padding: 4px 6px;
       display: inline-block;
       vertical-align: bottom;
-      border-radius: 3px;
-      color: rgba(0, 0, 0, 0.7);
+      border-radius: 4px;
       color: white;
-      margin-bottom: 10px;
+      margin-bottom: 8px;
+      font-size: 0.75rem;
       }
 
   p {
-          font-size: 1.2rem;
-          font-weight: 300;
-          margin-bottom: 10px;
-      }
+      font-size: 0.85rem;
+      font-weight: 400;
+      margin: 0;
+    }
 </style>
