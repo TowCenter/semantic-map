@@ -40,6 +40,10 @@
     $: highlightedSet = new Set(highlightedData.map(d => d.id));
   $: uniqueDomainCount = new Set(data.map(d => d[domainColumn])).size;
 
+  // d3-zoom behavior and selection to allow programmatic zooming
+  let zoomBehavior;
+  let canvasSel;
+
     // Tooltip position in CSS pixels within the chart container
     let tooltipX = 0;
     let tooltipY = 0;
@@ -449,7 +453,7 @@
     resizeObserver.observe(containerEl);
       }
       // Setup d3-zoom for wheel, double-click, and touch/pinch
-  const z = zoom()
+  zoomBehavior = zoom()
         .scaleExtent([MIN_SCALE, MAX_SCALE])
         .filter((event) => {
           // Allow wheel, touch, and dblclick; allow panning with primary button without modifiers
@@ -462,7 +466,8 @@
           t = event.transform;
           draw();
         });
-  select(canvas).call(z);
+  canvasSel = select(canvas);
+  canvasSel.call(zoomBehavior);
       draw();
       return () => {
         if (resizeObserver) resizeObserver.disconnect();
@@ -475,9 +480,30 @@
         opacity, selectedValues, searchQuery, showAnnotations, domainColumn, startDate, endDate; // Watch these props
         if (data.length) draw(); // Redraw when any of these change
     }
+
+    // Programmatic zoom controls
+    function zoomBy(factor, evt) {
+      evt?.stopPropagation?.();
+      if (!canvasSel || !zoomBehavior) return;
+      const cx = containerWidth / 2;
+      const cy = containerHeight / 2;
+      canvasSel.transition().duration(200).call(zoomBehavior.scaleBy, factor, [cx, cy]);
+    }
+    function zoomIn(evt) { zoomBy(1.25, evt); }
+    function zoomOut(evt) { zoomBy(1/1.25, evt); }
+    function resetZoom(evt) {
+      evt?.stopPropagation?.();
+      if (!canvasSel || !zoomBehavior) return;
+      canvasSel.transition().duration(200).call(zoomBehavior.transform, zoomIdentity);
+    }
 </script>
 
 <div class="chart-container" bind:this={containerEl}>
+    <div class="zoom-controls" aria-label="Zoom controls">
+      <button class="zoom-btn" aria-label="Zoom in" title="Zoom in" on:click={zoomIn}>+</button>
+      <button class="zoom-btn" aria-label="Zoom out" title="Zoom out" on:click={zoomOut}>−</button>
+      <button class="zoom-btn" aria-label="Reset zoom" title="Reset zoom" on:click={resetZoom}>⟲</button>
+    </div>
     <canvas
       bind:this={canvas}
       width={containerWidth}
@@ -509,6 +535,32 @@
       width: 100%;
       height: 100%;
       display: block;
+    }
+
+    .zoom-controls {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      z-index: 20;
+      pointer-events: auto;
+    }
+    .zoom-btn {
+      width: 34px;
+      height: 34px;
+      border-radius: 6px;
+      border: 1px solid rgba(0,0,0,0.15);
+      background: rgba(255,255,255,0.95);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+      cursor: pointer;
+      font-size: 18px;
+      line-height: 1;
+      padding: 0;
+    }
+    .zoom-btn:hover {
+      background: #fff;
     }
     
 </style>
