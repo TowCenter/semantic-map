@@ -33,7 +33,7 @@
   $: endPercent = allDates.length > 1 ? (endDateIndex / (allDates.length - 1)) * 100 : 100;
 
   onMount(async () => {
-    const response = await fetch('/semantic-maps/data.csv');
+    const response = await fetch('data.csv');
     const csvText = await response.text();
     parseCSV(csvText);
 
@@ -222,7 +222,10 @@
 <!-- App Layout -->
 <div class="container">
   <div class="title-section">
-    <h1 class="title">Interactive Semantic Map [DEMO]</h1>
+    <h1 class="title">Semantic Map [DEMO]</h1>
+    <p class="subtitle">
+      Each dot represents an article. When the dots are closer together, the articles are similar in meaning.
+    </p>
   </div>
 
   <div class="content">
@@ -236,9 +239,6 @@
             <p>
               Semantic maps are tools that allow users to visually explore how different topics and ideas are connected. 
               By analyzing the relationships between articles, these maps can reveal patterns and clusters in the data.
-            </p>
-            <p>
-              Each dot in this semantic map represents an article. When the dots are closer together, the articles are similar in meaning.
             </p>
             <p>
               Newsrooms can use semantic maps to:
@@ -255,8 +255,8 @@
       <label for="file-upload">📁 Upload CSV:</label>
       <input id="file-upload" type="file" accept=".csv" on:change={handleFileUpload} />
       
-      <label for="search-input">🔍 Search Text:</label>
-      <input id="search-input" type="text" placeholder="Search..." on:input={handleSearch} />
+      <label for="search-input">🔍 Search Text (supports regex):</label>
+      <input id="search-input" type="text" placeholder="Search or regex pattern..." on:input={handleSearch} />
 
       {#if columns.length}
         <label for="domain-column">🎨 Color by Column:</label>

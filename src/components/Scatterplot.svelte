@@ -18,8 +18,8 @@
 
 
     let annotations = [
-        { x: 500, y: 400, radius: 30, label: "Border Belt Independent and North Carolina Coastal Federation have both published about GenX — an industrial chemical.", label_x: -400, label_y: -80 },
-        { x: 720, y: 170, radius: 50, label: "Only Carolina Peacemaker seems to be publishing about personal health.", label_x: -100, label_y: 130 }
+        { x: 60, y: 140, radius: 40, label: "Articles about motor vehicle crashes.", label_x: -50, label_y: 130 },
+        { x: 720, y: 320, radius: 50, label: "Sports Articles", label_x: -50, label_y: -100 }
     ];
 
   let canvas;
@@ -45,6 +45,20 @@
     let tooltipY = 0;
     const TOOLTIP_MAX_W = 280; // px, used for simple boundary checks
     const TOOLTIP_H = 160;     // approximate height for clamping
+
+    // Helper function to check if text matches search query (supports regex)
+    function matchesSearchQuery(text, query) {
+        if (!query || !text) return false;
+        
+        try {
+            // Try to use the query as a regex pattern
+            const regex = new RegExp(query, 'i'); // case-insensitive
+            return regex.test(text);
+        } catch (e) {
+            // If regex is invalid, fall back to simple string search
+            return text.toLowerCase().includes(query.toLowerCase());
+        }
+    }
 
 
     
@@ -141,10 +155,7 @@
       // });
 
       data.forEach(d => {
-        const matchesSearch = searchQuery && (
-          d.text?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          d.title?.toLowerCase().includes(searchQuery.toLowerCase())
-        );
+        const matchesSearch = searchQuery && (d.text?.toLowerCase().includes(searchQuery.toLowerCase()) || d.title?.toLowerCase().includes(searchQuery.toLowerCase()));
         const isHighlighted = highlightedSet.has(d.id) || matchesSearch;
         const isSelected = selectedValues.has(d[domainColumn]);
         const isInDateRange = (!startDate || d.date >= startDate) && 
@@ -285,11 +296,7 @@
 
       ctx.setLineDash([]); // Reset line dash
 
-  if (hoveredData) {
-        const baseX = margin.left + xScale(hoveredData.x);
-        const baseY = margin.top + yScale(hoveredData.y);
-
-        // Draw the highlighted point on top
+      if (hoveredData) {
         ctx.beginPath();
         ctx.arc(baseX, baseY, Math.max(0.5, radius / t.k), 0, Math.PI * 2);
         ctx.fillStyle = colorScale(hoveredData[domainColumn]);
@@ -321,6 +328,63 @@
       ctx.restore();
     }
     
+    function handleClick(event) {
+      const rect = canvas.getBoundingClientRect();
+      
+      // Calculate scaling ratio between internal canvas dimensions and displayed dimensions
+      const scaleX = containerWidth / rect.width;
+      const scaleY = containerHeight / rect.height;
+      
+      // Adjust mouse coordinates based on the scaling ratio
+      const mouseX = (event.clientX - rect.left) * scaleX - margin.left;
+      const mouseY = (event.clientY - rect.top) * scaleY - margin.top;
+    
+      const adjustedX = (mouseX - zoomCenter.x) / zoomScale + zoomCenter.x;
+      const adjustedY = (mouseY - zoomCenter.y) / zoomScale + zoomCenter.y;
+    
+      const foundData = data.find(d => {
+        const dx = xScale(d.x) - adjustedX;
+        const dy = yScale(d.y) - adjustedY;
+        const isInRange = Math.sqrt(dx * dx + dy * dy) < radius + 3;
+
+        // Check if point is currently highlighted based on filters
+        const matchesSearch = searchQuery && (
+            matchesSearchQuery(d.text, searchQuery) || 
+            matchesSearchQuery(d.title, searchQuery)
+        );
+        const isHighlighted = highlightedSet.has(d.id) || matchesSearch;
+        const isSelected = selectedValues.has(d[domainColumn]);
+        const isInDateRange = (!startDate || d.date >= startDate) && 
+                             (!endDate || d.date <= endDate);
+        const isFullDateRange = startDate?.getTime() === Math.min(...data.map(d => d.date.getTime())) &&
+                               endDate?.getTime() === Math.max(...data.map(d => d.date.getTime()));
+
+        // Allow clicking in default state or if point matches filters
+        const isDefaultState = selectedValues.size === 0 || 
+                             selectedValues.size === new Set(data.map(d => d[domainColumn])).size;
+        const isVisible = isDefaultState || 
+                         ((isHighlighted || isSelected) && isInDateRange && !isFullDateRange) ||
+                         (isInDateRange && !isFullDateRange && selectedValues.size === 0) ||
+                         ((isHighlighted || isSelected) && isFullDateRange);
+
+        return isInRange && isVisible;
+      });
+
+      if (foundData) {
+        // Toggle clicked state - if clicking the same article, unselect it
+        if (clickedData && clickedData.id === foundData.id) {
+          clickedData = null;
+        } else {
+          clickedData = foundData;
+        }
+      } else {
+        // Click on empty area clears selection
+        clickedData = null;
+      }
+
+      draw();
+    }
+    
   function handleMouseMove(event) {
       const rect = canvas.getBoundingClientRect();
       
@@ -343,10 +407,7 @@
         const isInRange = Math.sqrt(dx * dx + dy * dy) < (radius + 3) / t.k;
 
         // Check if point is currently highlighted based on filters
-        const matchesSearch = searchQuery && (
-          d.text?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          d.title?.toLowerCase().includes(searchQuery.toLowerCase())
-        );
+        const matchesSearch = searchQuery && d.title?.toLowerCase().includes(searchQuery.toLowerCase());
         const isHighlighted = highlightedSet.has(d.id) || matchesSearch;
         const isSelected = selectedValues.has(d[domainColumn]);
         const isInDateRange = (!startDate || d.date >= startDate) && 
@@ -463,22 +524,22 @@
   // (Manual pan/zoom handlers removed in favor of d3-zoom)
     
     $: if (ctx) {
-      // Redraw when these change and there is data
-      data, opacity, selectedValues, searchQuery, showAnnotations, domainColumn, startDate, endDate, innerWidth, innerHeight, xScale, yScale, isFullDateRange;
-      if (data.length) draw();
+        opacity, selectedValues, searchQuery, showAnnotations, domainColumn, startDate, endDate; // Watch these props
+        if (data.length) draw(); // Redraw when any of these change
     }
 </script>
 
 <div class="chart-container" bind:this={containerEl}>
     <canvas
       bind:this={canvas}
+      width={containerWidth}
+      height={containerHeight}
       on:mousemove={handleMouseMove}
       on:mouseleave={handleMouseLeave}
       on:click={handleClick}
     ></canvas>
-    
     {#if hoveredData}
-      <DetailCard {hoveredData} {data} {domainColumn} {colorScale} posX={tooltipX} posY={tooltipY} />
+      <DetailCard {hoveredData} {data} {domainColumn} {colorScale} />
     {/if}
 </div>
 
