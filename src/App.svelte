@@ -329,7 +329,7 @@
           {endDate}      
         />
       {:else}
-        <p>Please upload a CSV</p>
+        <p>Waiting for data</p>
       {/if}
     </div>
   </div>
