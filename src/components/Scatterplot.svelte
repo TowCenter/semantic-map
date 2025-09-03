@@ -17,10 +17,10 @@
     export let endDate = null;    // Add these new props
 
 
-    let annotations = [
-        { x: 60, y: 140, radius: 40, label: "Articles about motor vehicle crashes.", label_x: -50, label_y: 130 },
-        { x: 970, y: 320, radius: 70, label: "Sports Articles", label_x: -50, label_y: -100 }
-    ];
+    // let annotations = [
+    //     { x: 60, y: 140, radius: 40, label: "Articles about motor vehicle crashes.", label_x: -50, label_y: 130 },
+    //     { x: 970, y: 320, radius: 70, label: "Sports Articles", label_x: -50, label_y: -100 }
+    // ];
 
   let canvas;
   let containerEl; // wrapper element whose size controls the canvas
@@ -36,7 +36,7 @@
   let lastHoveredData = null;
   let t = zoomIdentity; // d3-zoom transform
   const MIN_SCALE = 0.5;
-  const MAX_SCALE = 10;
+  const MAX_SCALE = 20;
     $: highlightedSet = new Set(highlightedData.map(d => d.id));
   $: uniqueDomainCount = new Set(data.map(d => d[domainColumn])).size;
 
@@ -132,31 +132,6 @@
       // Apply d3 zoom/pan transform
       ctx.translate(t.x, t.y);
       ctx.scale(t.k, t.k);
-
-      // Draw data points
-      // data.forEach(d => {
-      //   const matchesSearch = searchQuery && d.title?.toLowerCase().includes(searchQuery.toLowerCase());
-      //   const isHighlighted = highlightedSet.has(d.id) || matchesSearch;
-      //   const isSelected = selectedValues.has(d[domainColumn]);
-      //   const isInDateRange = (!startDate || d.date >= startDate) && 
-      //                        (!endDate || d.date <= endDate);
-
-      //   ctx.beginPath();
-      //   ctx.arc(margin.left + xScale(d.x), margin.top + yScale(d.y), radius, 0, Math.PI * 2);
-      //   ctx.fillStyle = colorScale(d[domainColumn]);
-        
-      //   // Set opacity based on conditions
-      //   if (isInDateRange && !isFullDateRange) {
-      //     ctx.globalAlpha = 1;
-      //   } else if ((isHighlighted || isSelected) && isFullDateRange) {
-      //     ctx.globalAlpha = 1;
-      //   } else {
-      //     ctx.globalAlpha = opacity * 0.2;
-      //   }
-
-      //   ctx.fill();
-
-      // });
 
       data.forEach(d => {
         const matchesSearch = searchQuery && (d.text?.toLowerCase().includes(searchQuery.toLowerCase()) || d.title?.toLowerCase().includes(searchQuery.toLowerCase()));

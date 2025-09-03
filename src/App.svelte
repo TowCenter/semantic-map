@@ -4,6 +4,8 @@
   import Scatterplot from './components/Scatterplot.svelte';
   import RangeSlider from './components/RangeSlider.svelte';
 
+  const DATA_URL = import.meta.env.VITE_DATA_URL || 'data.csv';
+  
   let data = [], columns = [], domainColumn = "org", uniqueValues = [];
   let selectedValues = new Set(); 
   let opacity = 0.5, startDate = null, endDate = null;
@@ -33,9 +35,14 @@
   $: endPercent = allDates.length > 1 ? (endDateIndex / (allDates.length - 1)) * 100 : 100;
 
   onMount(async () => {
-    const response = await fetch('data.csv');
-    const csvText = await response.text();
-    parseCSV(csvText);
+    try {
+      const response = await fetch(DATA_URL, { mode: 'cors', cache: 'no-store' });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const csvText = await response.text();
+      parseCSV(csvText);
+    } catch (err) {
+      console.error('Failed to load CSV:', err);
+    }
 
     return () => {
       if (playInterval) clearInterval(playInterval);
