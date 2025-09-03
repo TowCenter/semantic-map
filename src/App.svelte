@@ -3,12 +3,16 @@
   import Papa from 'papaparse';
   import Scatterplot from './components/Scatterplot.svelte';
   import RangeSlider from './components/RangeSlider.svelte';
+  import { labelForDomain, descriptionForDomain } from './labels';
 
   const DATA_URL = import.meta.env.VITE_DATA_URL || 'data.csv';
+  $: isDefaultRemote = /^https?:\/\//i.test(DATA_URL);
+  const DATE_CAP_STR = '2025-07-01';
+  const MAX_DATE_CAP = new Date(DATE_CAP_STR);
   
   let data = [], columns = [], domainColumn = "org", uniqueValues = [];
   let selectedValues = new Set(); 
-  let opacity = 0.5, startDate = null, endDate = null;
+  let opacity = 0.3, startDate = null, endDate = null;
   let filteredData = [], allDates = [];
   let startDateIndex = 0;
   let endDateIndex = 0;
@@ -19,7 +23,102 @@
 
 
   let searchQuery = "";
-  let showAnnotations = true;
+  let showAnnotations = false;
+
+  // Only allow org or cluster as color-by options
+  $: allowedDomainColumns = columns.filter((c) => c === 'org' || c === 'cluster');
+  $: {
+    // Wait until columns are known before adjusting the selected domain
+    if (!columns || columns.length === 0) {
+      // do nothing until parsed
+    } else if (allowedDomainColumns.length && !allowedDomainColumns.includes(domainColumn)) {
+      domainColumn = allowedDomainColumns[0];
+    } else if (allowedDomainColumns.length === 0) {
+      domainColumn = '';
+    }
+  }
+
+  // Keep unique values in sync as data or domain selection changes
+  $: uniqueValues = domainColumn ? [...new Set(data.map(d => d[domainColumn]).filter(v => v !== undefined && v !== null && v !== ''))] : [];
+  // Compute human-readable labels for UI (values remain raw for selection)
+  $: labeledUniqueValues = uniqueValues.map(v => ({ value: v, label: labelForDomain(domainColumn, v, isDefaultRemote) }));
+
+  // Loading/progress state
+  let isLoading = false;
+  let loadPhase = 'idle'; // 'downloading' | 'parsing' | 'idle'
+  let loadBytes = 0;
+  let loadTotal = 0;
+  let loadProgress = 0; // 0-100 when total known
+
+  function formatBytes(bytes) {
+    if (!bytes || bytes <= 0) return '0 KB';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let v = bytes;
+    let i = 0;
+    while (v >= 1024 && i < units.length - 1) {
+      v /= 1024;
+      i++;
+    }
+    const dp = i === 0 ? 0 : 1;
+    return `${v.toFixed(dp)} ${units[i]}`;
+  }
+
+  onMount(async () => {
+    try {
+      isLoading = true;
+      loadPhase = 'downloading';
+      loadBytes = 0;
+      loadTotal = 0;
+      loadProgress = 0;
+
+      const response = await fetch(DATA_URL, { mode: 'cors', cache: 'no-store' });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+      const len = response.headers.get('content-length');
+      loadTotal = len ? parseInt(len, 10) : 0;
+
+      let csvText = '';
+      if (response.body && response.body.getReader) {
+        const reader = response.body.getReader();
+        const chunks = [];
+        let received = 0;
+        // Stream and accumulate while reporting progress
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          chunks.push(value);
+          received += value.byteLength;
+          loadBytes = received;
+          if (loadTotal) {
+            loadProgress = Math.round((received / loadTotal) * 100);
+          }
+        }
+        const full = new Uint8Array(received);
+        let offset = 0;
+        for (const c of chunks) {
+          full.set(c, offset);
+          offset += c.byteLength;
+        }
+        csvText = new TextDecoder().decode(full);
+      } else {
+        // Fallback without streaming/progress
+        csvText = await response.text();
+      }
+
+      // Parse phase (indeterminate)
+      loadPhase = 'parsing';
+      await Promise.resolve(parseCSV(csvText));
+      loadPhase = 'idle';
+    } catch (err) {
+      console.error('Failed to load CSV:', err);
+    } finally {
+      isLoading = false;
+    }
+
+    return () => {
+      if (playInterval) clearInterval(playInterval);
+    };
+  });  
 
   $: filteredData = data.map(d => ({
     ...d,
@@ -34,20 +133,16 @@
   $: startPercent = allDates.length > 1 ? (startDateIndex / (allDates.length - 1)) * 100 : 0;
   $: endPercent = allDates.length > 1 ? (endDateIndex / (allDates.length - 1)) * 100 : 100;
 
-  onMount(async () => {
-    try {
-      const response = await fetch(DATA_URL, { mode: 'cors', cache: 'no-store' });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const csvText = await response.text();
-      parseCSV(csvText);
-    } catch (err) {
-      console.error('Failed to load CSV:', err);
-    }
+  // Highest index allowed under the cap date (last date <= MAX_DATE_CAP)
+  $: maxAllowedIndex = (() => {
+    if (!allDates || allDates.length === 0) return 0;
+    const capTs = MAX_DATE_CAP.getTime();
+    // find first index with date > cap, then step back one
+    const firstAfter = allDates.findIndex(d => d.getTime() > capTs);
+    return firstAfter === -1 ? allDates.length - 1 : Math.max(0, firstAfter - 1);
+  })();
 
-    return () => {
-      if (playInterval) clearInterval(playInterval);
-    };
-  });
+
 
   function parseCSV(csvText) {
     const result = Papa.parse(csvText, { header: true });
@@ -60,13 +155,20 @@
       .sort((a, b) => a - b)
       .map(t => new Date(t));
 
-    startDate = allDates[0];
-    endDate = allDates[allDates.length - 1];
-    startDateIndex = 0;
-    endDateIndex = allDates.length - 1;
+  startDate = allDates[0];
+  endDate = allDates[allDates.length - 1];
+  // Clamp initial end date to cap so input isn't invalid
+    if (endDate && endDate.getTime() > MAX_DATE_CAP.getTime()) {
+      endDate = new Date(MAX_DATE_CAP);
+    }
+  startDateIndex = 0;
+  // set to the last permissible index under the cap
+  endDateIndex = maxAllowedIndex;
+  // Recompute indices to reflect any clamping
+  updateDateIndices();
 
     if (domainColumn) {
-      uniqueValues = [...new Set(data.map(d => d[domainColumn]).filter(Boolean))];
+      uniqueValues = [...new Set(data.map(d => d[domainColumn]).filter(v => v !== undefined && v !== null && v !== ''))];
     }
   }
 
@@ -100,17 +202,24 @@
     showAnnotations = false;
   }
 
+  // Keep highlightedData in sync is handled by selection handlers for multi-select
+
   function updateSelectedDates(start, end, fromIndices = false) {
     if (fromIndices) {
       // If we're updating from indices, convert them to actual dates
       startDate = allDates[start] || allDates[0];
       endDate = allDates[end] || allDates[allDates.length - 1];
+      if (endDate && endDate.getTime() > MAX_DATE_CAP.getTime()) {
+        endDate = new Date(MAX_DATE_CAP);
+      }
     } else {
       // We're updating from actual date objects
       startDate = start;
-      endDate = end;
+      endDate = end ? new Date(Math.min(end.getTime(), MAX_DATE_CAP.getTime())) : end;
     }
     showAnnotations = false;
+  // Keep indices in sync with possibly clamped dates
+  updateDateIndices();
   }
 
   function updateDateIndices() {
@@ -123,13 +232,16 @@
     }
 
     if (endDate) {
-      const timestamp = endDate.getTime();
-      const exactIndex = allDates.findIndex(d => d.getTime() >= timestamp);
-      endDateIndex = exactIndex >= 0 ? 
-        exactIndex : 
-        (allDates.length > 0 ? allDates.length - 1 : 0);
+      const capTs = MAX_DATE_CAP.getTime();
+      const timestamp = Math.min(endDate.getTime(), capTs);
+      // choose the last index whose date <= timestamp (works with caps and inputs between dates)
+      let ei = -1;
+      for (let i = allDates.length - 1; i >= 0; i--) {
+        if (allDates[i].getTime() <= timestamp) { ei = i; break; }
+      }
+      endDateIndex = ei >= 0 ? ei : 0;
     } else {
-      endDateIndex = allDates.length - 1;
+      endDateIndex = maxAllowedIndex;
     }
 
     // Ensure indices are in valid range
@@ -224,6 +336,41 @@
   function handleOpacityChange() {
     showAnnotations = false;
   }
+
+  function resetFilters() {
+    // Stop playback if running
+    if (isPlaying && playInterval) {
+      clearInterval(playInterval);
+      isPlaying = false;
+    }
+
+    // Reset domain to default ('org' if available, otherwise first allowed)
+    const defaultDomain = columns.includes('org') ? 'org' : (allowedDomainColumns[0] || '');
+    domainColumn = defaultDomain;
+
+    // Clear selection and highlights
+    selectedValues = new Set();
+    highlightedData = [];
+
+    // Reset search and annotations
+    searchQuery = '';
+    showAnnotations = false;
+
+    // Reset opacity to initial default
+    opacity = 0.3;
+
+    // Reset date range to full
+    if (allDates.length) {
+      startDateIndex = 0;
+      endDateIndex = allDates.length - 1;
+      updateSelectedDates(startDateIndex, endDateIndex, true);
+    } else {
+      startDate = null;
+      endDate = null;
+      startDateIndex = 0;
+      endDateIndex = 0;
+    }
+  }
 </script>
 
 <!-- App Layout -->
@@ -238,6 +385,10 @@
   <div class="content">
     <!-- Filters Panel -->
     <div class="filter-panel">
+
+      <div class="filter-actions">
+        <button class="reset-btn" on:click={resetFilters}>Reset filters</button>
+      </div>
 
       <div class="nerd-box">
         <details close>
@@ -265,36 +416,36 @@
       <label for="search-input">🔍 Search Text (supports regex):</label>
       <input id="search-input" type="text" placeholder="Search or regex pattern..." on:input={handleSearch} />
 
-      {#if columns.length}
+      {#if allowedDomainColumns.length}
         <label for="domain-column">🎨 Color by Column:</label>
         <select id="domain-column" on:change={handleDomainChange} bind:value={domainColumn}>
           <option value="" disabled>Select column</option>
-          {#each columns as column}
+          {#each allowedDomainColumns as column}
             <option value={column}>{column}</option>
           {/each}
         </select>
       {/if}
 
       {#if uniqueValues.length}
-        <label for="value-select">✨ Highlight Values:</label>
-        <select id="value-select" multiple size="5" class="multi-select" on:change={handleSelectionChange}>
-          {#each uniqueValues as value}
-            <option value={value}>{value}</option>
+        <label for="value-select">✨ Highlight Values (hold Shift/Cmd to select multiple):</label>
+    <select id="value-select" multiple size="5" class="multi-select" on:change={handleSelectionChange}>
+          {#each labeledUniqueValues as item}
+      <option value={item.value} selected={selectedValues.has(item.value)}>{item.label}</option>
           {/each}
         </select>
       {/if}
 
-      <label for="opacity-slider">💡 Adjust Opacity:</label>
+      <label for="opacity-slider">💡 Adjust Opacity of Active Articles:</label>
       <input id="opacity-slider" type="range" min="0.01" max="1" step="0.1" bind:value={opacity} on:input={handleOpacityChange} />
 
       <div class="date-controls">
         <label for="start-date">📅 Date Range:</label>
-        <input id="start-date" type="date" value={formatDateInput(startDate)} on:change={(e) => handleDateChange(e, 'start')} />
-        <input id="end-date" type="date" value={formatDateInput(endDate)} on:change={(e) => handleDateChange(e, 'end')} />
+  <input id="start-date" type="date" value={formatDateInput(startDate)} max="2025-07-01" on:change={(e) => handleDateChange(e, 'start')} />
+  <input id="end-date" type="date" value={formatDateInput(endDate)} max="2025-07-01" on:change={(e) => handleDateChange(e, 'end')} />
 
         <RangeSlider 
           min={0} 
-          max={allDates.length - 1} 
+          max={maxAllowedIndex} 
           bind:startValue={startDateIndex} 
           bind:endValue={endDateIndex}
           on:startChange={(e) => handleDateChange(e, 'start')}
@@ -334,9 +485,36 @@
           {highlightedData}
           {startDate}    
           {endDate}      
+          labelOverride={(domain, value) => labelForDomain(domain, value, isDefaultRemote)}
+          descriptionOverride={(domain, value) => descriptionForDomain(domain, value, isDefaultRemote)}
         />
       {:else}
-        <p>Waiting for data</p>
+        {#if isLoading}
+          <div class="progress-wrap">
+            <div class="progress-header">
+              {#if loadPhase === 'downloading'}
+                Downloading CSV...
+              {:else if loadPhase === 'parsing'}
+                Parsing CSV...
+              {:else}
+                Loading...
+              {/if}
+            </div>
+            {#if loadPhase === 'downloading'}
+              {#if loadTotal}
+                <div class="progress-bar"><div class="progress-fill" style="width: {loadProgress}%"></div></div>
+                <div class="progress-label">{loadProgress}% ({formatBytes(loadBytes)} / {formatBytes(loadTotal)})</div>
+              {:else}
+                <div class="progress-bar indeterminate"></div>
+                <div class="progress-label">{formatBytes(loadBytes)}</div>
+              {/if}
+            {:else}
+              <div class="progress-bar indeterminate"></div>
+            {/if}
+          </div>
+        {:else}
+          <p>Waiting for data</p>
+        {/if}
       {/if}
     </div>
   </div>
@@ -396,7 +574,24 @@
   overscroll-behavior: contain; /* keep scroll events within the panel */
   }
 
-  .filter-panel label {
+  .filter-actions {
+    display: flex;
+    justify-content: flex-start;
+  }
+  .reset-btn {
+    padding: 0.4rem 0.6rem;
+    font-size: 0.85rem;
+    background: #fff;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .reset-btn:hover {
+    background: #f7f7f7;
+  }
+
+  /* Only style top-level labels in the filter panel (avoid checkbox item labels) */
+  .filter-panel > label {
     font-weight: 600;
     font-size: 0.9rem;
   }
@@ -411,17 +606,20 @@
     box-sizing: border-box; 
   }
 
-  .multi-select {
-    min-height: 150px;
-    overflow-y: auto;
-    width: 100%; 
-  }
+  /* removed checkbox styles after switching to multi-select */
 
   .filter-panel input:focus,
   .filter-panel select:focus {
     outline: none;
     border-color: #4c8bf5;
   }
+
+   .multi-select {
+    min-height: 150px;
+    overflow-y: auto;
+    width: 100%; 
+  }
+
 
   .scatterplot-container {
     flex: 1;          /* take remaining width next to panel */
@@ -510,4 +708,16 @@
     margin-bottom: 0.5rem; /* Add spacing between list items */
     color: #444;
   }
+
+  /* Progress styles */
+  .progress-wrap { display: flex; flex-direction: column; gap: 0.25rem; margin-bottom: 0.5rem; }
+  .progress-header { font-size: 0.9rem; color: #333; font-weight: 600; }
+  .progress-bar { position: relative; height: 8px; background: #e5e7eb; border-radius: 999px; overflow: hidden; }
+  .progress-fill { height: 100%; background: #4c8bf5; width: 0%; transition: width 120ms linear; }
+  .progress-bar.indeterminate::before {
+    content: ""; position: absolute; left: -40%; width: 40%; height: 100%;
+    background: #4c8bf5; animation: indet 1s infinite;
+  }
+  @keyframes indet { 0% { left: -40%; } 50% { left: 60%; } 100% { left: 100%; } }
+  .progress-label { font-size: 0.8rem; color: #555; }
 </style>

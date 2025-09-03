@@ -15,12 +15,16 @@
     export let highlightedData = [];
     export let startDate = null;  // Add these new props
     export let endDate = null;    // Add these new props
+  export let labelOverride = null; // optional labeling function(domain, value)
+  export let descriptionOverride = null; // optional description function
 
 
     // let annotations = [
     //     { x: 60, y: 140, radius: 40, label: "Articles about motor vehicle crashes.", label_x: -50, label_y: 130 },
     //     { x: 970, y: 320, radius: 70, label: "Sports Articles", label_x: -50, label_y: -100 }
     // ];
+
+    let annotations = [];
 
   let canvas;
   let containerEl; // wrapper element whose size controls the canvas
@@ -95,15 +99,10 @@
           : []
       );
 
-    // Precompute date bounds and whether full range is selected
-    $: minDate = data.length ? new Date(Math.min(...data.map(d => d.date.getTime()))) : null;
-    $: maxDate = data.length ? new Date(Math.max(...data.map(d => d.date.getTime()))) : null;
-    $: isFullDateRange = !!(
-      startDate && endDate && minDate && maxDate &&
-      startDate.getTime() === minDate.getTime() &&
-      endDate.getTime() === maxDate.getTime()
-    );
-    
+  // Precompute date bounds (used for defaults when needed)
+  $: minDate = data.length ? new Date(Math.min(...data.map(d => d.date.getTime()))) : null;
+  $: maxDate = data.length ? new Date(Math.max(...data.map(d => d.date.getTime()))) : null;
+
     // HiDPI setup and responsive sizing based on container element
     let dpr = 1;
     function setupCanvasDPI() {
@@ -134,31 +133,30 @@
       ctx.scale(t.k, t.k);
 
       data.forEach(d => {
-        const matchesSearch = searchQuery && (d.text?.toLowerCase().includes(searchQuery.toLowerCase()) || d.title?.toLowerCase().includes(searchQuery.toLowerCase()));
-        const isHighlighted = highlightedSet.has(d.id) || matchesSearch;
-        const isSelected = selectedValues.has(d[domainColumn]);
-        const isInDateRange = (!startDate || d.date >= startDate) && 
-                            (!endDate || d.date <= endDate);
+        // Determine active filters
+        const hasSearch = !!(searchQuery && String(searchQuery).trim().length);
+        const inSearch = hasSearch
+          ? (matchesSearchQuery(d.title ?? '', searchQuery) || matchesSearchQuery(d.text ?? '', searchQuery))
+          : true;
+
+        const hasSelection = selectedValues && selectedValues.size > 0 && selectedValues.size < uniqueDomainCount;
+        const inSelection = hasSelection ? selectedValues.has(d[domainColumn]) : true;
+
+        const inDateRange = (startDate && endDate)
+          ? (d.date >= startDate && d.date <= endDate)
+          : true;
+
+        // Intersection: point must satisfy all active filters
+        const isActive = inSearch && inSelection && inDateRange;
 
         ctx.beginPath();
         // Keep point radius constant in screen pixels by compensating for zoom
         ctx.arc(margin.left + xScale(d.x), margin.top + yScale(d.y), Math.max(0.5, radius / t.k), 0, Math.PI * 2);
-        ctx.fillStyle = colorScale(d[domainColumn]);
-        
-        // Set opacity based on conditions
-        if ((isHighlighted || isSelected) && isInDateRange && !isFullDateRange) {
-          // Show points that match both filters at full opacity
-          ctx.globalAlpha = 1;
-        } else if (isInDateRange && !isFullDateRange && selectedValues.size === 0) {
-          // If only date range is active (no highlights selected), show all points in range
-          ctx.globalAlpha = 1;
-        } else if ((isHighlighted || isSelected) && isFullDateRange) {
-          // If only highlights are active (full date range), show highlighted points
-          ctx.globalAlpha = 1;
-        } else {
-          // Dim all other points
-          ctx.globalAlpha = opacity * 0.2;
-        }
+  ctx.fillStyle = colorScale(d[domainColumn]);
+  // Apply user opacity to all points; dim inactive ones
+  const activeAlpha = Math.max(0, Math.min(1, opacity));
+  const inactiveAlpha = Math.max(0, Math.min(1, .05));
+  ctx.globalAlpha = isActive ? activeAlpha : inactiveAlpha;
         
   ctx.fill();
   ctx.globalAlpha = 1; // reset for next operations
@@ -333,22 +331,19 @@
         const dy = worldY - adjustedY;
         const isInRange = Math.sqrt(dx * dx + dy * dy) < (radius + 3) / t.k;
 
-        // Check if point is currently highlighted based on filters
-        const matchesSearch = searchQuery && d.title?.toLowerCase().includes(searchQuery.toLowerCase());
-        const isHighlighted = highlightedSet.has(d.id) || matchesSearch;
-        const isSelected = selectedValues.has(d[domainColumn]);
-        const isInDateRange = (!startDate || d.date >= startDate) && 
-                             (!endDate || d.date <= endDate);
+        // Apply the same intersection logic for interactivity
+        const hasSearch = !!(searchQuery && String(searchQuery).trim().length);
+        const inSearch = hasSearch
+          ? (matchesSearchQuery(d.title ?? '', searchQuery) || matchesSearchQuery(d.text ?? '', searchQuery))
+          : true;
+        const hasSelection = selectedValues && selectedValues.size > 0 && selectedValues.size < uniqueDomainCount;
+        const inSelection = hasSelection ? selectedValues.has(d[domainColumn]) : true;
+        const inDateRange = (startDate && endDate)
+          ? (d.date >= startDate && d.date <= endDate)
+          : true;
+        const isActive = inSearch && inSelection && inDateRange;
 
-        // Allow hovering in default state or if point matches filters
-        const isDefaultState = selectedValues.size === 0 || 
-                             selectedValues.size === uniqueDomainCount;
-        const isVisible = isDefaultState || 
-                         ((isHighlighted || isSelected) && isInDateRange && !isFullDateRange) ||
-                         (isInDateRange && !isFullDateRange && selectedValues.size === 0) ||
-                         ((isHighlighted || isSelected) && isFullDateRange);
-
-        return isInRange && isVisible;
+        return isInRange && isActive;
       });
 
   if (foundData) {
@@ -381,23 +376,19 @@
         // Keep hit radius in screen pixels by scaling threshold by 1/k
         const isInRange = Math.sqrt(dx * dx + dy * dy) < (radius + 3) / t.k;
 
-        const matchesSearch = searchQuery && (
-          d.text?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          d.title?.toLowerCase().includes(searchQuery.toLowerCase())
-        );
-        const isHighlighted = highlightedSet.has(d.id) || matchesSearch;
-        const isSelected = selectedValues.has(d[domainColumn]);
-        const isInDateRange = (!startDate || d.date >= startDate) && 
-                             (!endDate || d.date <= endDate);
+        // Apply the same intersection logic for clicks
+        const hasSearch = !!(searchQuery && String(searchQuery).trim().length);
+        const inSearch = hasSearch
+          ? (matchesSearchQuery(d.title ?? '', searchQuery) || matchesSearchQuery(d.text ?? '', searchQuery))
+          : true;
+        const hasSelection = selectedValues && selectedValues.size > 0 && selectedValues.size < uniqueDomainCount;
+        const inSelection = hasSelection ? selectedValues.has(d[domainColumn]) : true;
+        const inDateRange = (startDate && endDate)
+          ? (d.date >= startDate && d.date <= endDate)
+          : true;
+        const isActive = inSearch && inSelection && inDateRange;
 
-        const isDefaultState = selectedValues.size === 0 || 
-                             selectedValues.size === uniqueDomainCount;
-        const isVisible = isDefaultState || 
-                         ((isHighlighted || isSelected) && isInDateRange && !isFullDateRange) ||
-                         (isInDateRange && !isFullDateRange && selectedValues.size === 0) ||
-                         ((isHighlighted || isSelected) && isFullDateRange);
-
-        return isInRange && isVisible;
+        return isInRange && isActive;
       });
 
       if (!foundData) return;
@@ -488,7 +479,7 @@
       on:click={handleClick}
     ></canvas>
     {#if hoveredData}
-      <DetailCard {hoveredData} {data} {domainColumn} {colorScale} posX={tooltipX} posY={tooltipY} />
+      <DetailCard {hoveredData} {data} {domainColumn} {colorScale} posX={tooltipX} posY={tooltipY} {labelOverride} {descriptionOverride} />
     {/if}
 </div>
 

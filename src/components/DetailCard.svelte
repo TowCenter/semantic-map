@@ -9,6 +9,8 @@
   export let colorScale;
   export let posX = 0; // absolute position inside chart container
   export let posY = 0;
+  export let labelOverride = null; // optional function(domain, value) -> label
+  export let descriptionOverride = null; // optional function(domain, value) -> description
   
   let filteredData = [];
   let dates = [];
@@ -29,8 +31,13 @@
   {#if hoveredData}
   <h1>{hoveredData.title}</h1>
   <span style="background: {colorScale(hoveredData[domainColumn])};">
-      {hoveredData[domainColumn]}</span>
+      {labelOverride ? labelOverride(domainColumn, hoveredData[domainColumn]) : hoveredData[domainColumn]}</span>
   <h2>{hoveredData.date.toISOString().split('T')[0]}</h2>  
+  {#if descriptionOverride}
+    {#if descriptionOverride(domainColumn, hoveredData[domainColumn])}
+      <p><em>{descriptionOverride(domainColumn, hoveredData[domainColumn])}</em></p>
+    {/if}
+  {/if}
   <p> {hoveredData.text}</p>
   {:else}
   <p>Hover over a circle to see details here.</p>
