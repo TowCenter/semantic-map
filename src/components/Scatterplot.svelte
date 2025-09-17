@@ -15,8 +15,6 @@
     export let highlightedData = [];
     export let startDate = null;  // Add these new props
     export let endDate = null;    // Add these new props
-  export let labelOverride = null; // optional labeling function(domain, value)
-  export let descriptionOverride = null; // optional description function
 
 
     // let annotations = [
@@ -479,7 +477,7 @@
       on:click={handleClick}
     ></canvas>
     {#if hoveredData}
-      <DetailCard {hoveredData} {data} {domainColumn} {colorScale} posX={tooltipX} posY={tooltipY} {labelOverride} {descriptionOverride} />
+      <DetailCard {hoveredData} {data} {domainColumn} {colorScale} posX={tooltipX} posY={tooltipY} />
     {/if}
 </div>
 

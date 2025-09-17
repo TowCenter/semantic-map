@@ -3,7 +3,6 @@
   import Papa from 'papaparse';
   import Scatterplot from './components/Scatterplot.svelte';
   import RangeSlider from './components/RangeSlider.svelte';
-  import { labelForDomain, descriptionForDomain } from './labels';
 
   const DATA_URL = import.meta.env.VITE_DATA_URL || 'data.csv';
   $: isDefaultRemote = /^https?:\/\//i.test(DATA_URL);
@@ -38,10 +37,6 @@
     }
   }
 
-  // Keep unique values in sync as data or domain selection changes
-  $: uniqueValues = domainColumn ? [...new Set(data.map(d => d[domainColumn]).filter(v => v !== undefined && v !== null && v !== ''))] : [];
-  // Compute human-readable labels for UI (values remain raw for selection)
-  $: labeledUniqueValues = uniqueValues.map(v => ({ value: v, label: labelForDomain(domainColumn, v, isDefaultRemote) }));
 
   // Loading/progress state
   let isLoading = false;
@@ -100,6 +95,8 @@
           offset += c.byteLength;
         }
         csvText = new TextDecoder().decode(full);
+        console.log('CSV head:', csvText.split('\n').slice(0, 5).join('\n'));
+
       } else {
         // Fallback without streaming/progress
         csvText = await response.text();
@@ -145,27 +142,34 @@
 
 
   function parseCSV(csvText) {
+    // Lowercase headers before parsing
+    const lines = csvText.split(/\r?\n/);
+    if (lines.length > 0) {
+      const headerLine = lines[0];
+      const lowerHeader = headerLine.split(',').map(h => h.trim().toLowerCase()).join(',');
+      lines[0] = lowerHeader;
+      csvText = lines.join('\n');
+    }
     const result = Papa.parse(csvText, { header: true });
     data = result.data.filter(d => d.x && d.y && d.date)
-    .map((d, i) => ({ ...d, x: +d.x, y: +d.y, date: new Date(d.date), id: i }))
-
+      .map((d, i) => ({ ...d, x: +d.x, y: +d.y, date: new Date(d.date), id: i }));
 
     columns = result.meta.fields || [];
     allDates = [...new Set(data.map(d => d.date.getTime()))]
       .sort((a, b) => a - b)
       .map(t => new Date(t));
 
-  startDate = allDates[0];
-  endDate = allDates[allDates.length - 1];
-  // Clamp initial end date to cap so input isn't invalid
+    startDate = allDates[0];
+    endDate = allDates[allDates.length - 1];
+    // Clamp initial end date to cap so input isn't invalid
     if (endDate && endDate.getTime() > MAX_DATE_CAP.getTime()) {
       endDate = new Date(MAX_DATE_CAP);
     }
-  startDateIndex = 0;
-  // set to the last permissible index under the cap
-  endDateIndex = maxAllowedIndex;
-  // Recompute indices to reflect any clamping
-  updateDateIndices();
+    startDateIndex = 0;
+    // set to the last permissible index under the cap
+    endDateIndex = maxAllowedIndex;
+    // Recompute indices to reflect any clamping
+    updateDateIndices();
 
     if (domainColumn) {
       uniqueValues = [...new Set(data.map(d => d[domainColumn]).filter(v => v !== undefined && v !== null && v !== ''))];
@@ -428,9 +432,9 @@
 
       {#if uniqueValues.length}
         <label for="value-select">✨ Highlight Values (hold Shift/Cmd to select multiple):</label>
-    <select id="value-select" multiple size="5" class="multi-select" on:change={handleSelectionChange}>
-          {#each labeledUniqueValues as item}
-      <option value={item.value} selected={selectedValues.has(item.value)}>{item.label}</option>
+        <select id="value-select" multiple size="5" class="multi-select" on:change={handleSelectionChange}>
+          {#each uniqueValues as item}
+            <option value={item} selected={selectedValues.has(item)}>{item}</option>
           {/each}
         </select>
       {/if}
@@ -485,8 +489,6 @@
           {highlightedData}
           {startDate}    
           {endDate}      
-          labelOverride={(domain, value) => labelForDomain(domain, value, isDefaultRemote)}
-          descriptionOverride={(domain, value) => descriptionForDomain(domain, value, isDefaultRemote)}
         />
       {:else}
         {#if isLoading}
