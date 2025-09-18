@@ -150,14 +150,14 @@
         ctx.beginPath();
         // Keep point radius constant in screen pixels by compensating for zoom
         ctx.arc(margin.left + xScale(d.x), margin.top + yScale(d.y), Math.max(0.5, radius / t.k), 0, Math.PI * 2);
-  ctx.fillStyle = colorScale(d[domainColumn]);
-  // Apply user opacity to all points; dim inactive ones
-  const activeAlpha = Math.max(0, Math.min(1, opacity));
-  const inactiveAlpha = Math.max(0, Math.min(1, .05));
-  ctx.globalAlpha = isActive ? activeAlpha : inactiveAlpha;
-        
-  ctx.fill();
-  ctx.globalAlpha = 1; // reset for next operations
+        ctx.fillStyle = colorScale(d[domainColumn]);
+        // Apply user opacity to all points; dim inactive ones
+        const activeAlpha = Math.max(0, Math.min(1, .8));
+        const inactiveAlpha = Math.max(0, Math.min(1, opacity));
+        ctx.globalAlpha = isActive ? activeAlpha : inactiveAlpha;
+              
+        ctx.fill();
+        ctx.globalAlpha = .2; // reset for next operations
       });
 
 

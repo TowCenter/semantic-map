@@ -172,15 +172,15 @@
     updateDateIndices();
 
     if (domainColumn) {
-      uniqueValues = [...new Set(data.map(d => d[domainColumn]).filter(v => v !== undefined && v !== null && v !== ''))];
+      uniqueValues = [...new Set(data.map(d => d[domainColumn]).filter(v => v !== undefined && v !== null && v !== ''))].sort((a, b) => String(a).localeCompare(String(b)));
     }
   }
 
   function handleDomainChange(event) {
-    domainColumn = event.target.value;
-    uniqueValues = domainColumn ? [...new Set(data.map(d => d[domainColumn]).filter(Boolean))] : [];
-    selectedValues = new Set();
-    showAnnotations = false;
+  domainColumn = event.target.value;
+  uniqueValues = domainColumn ? [...new Set(data.map(d => d[domainColumn]).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b))) : [];
+  selectedValues = new Set();
+  showAnnotations = false;
   }
 
   function handleSelectionChange(event) {
@@ -361,7 +361,7 @@
     showAnnotations = false;
 
     // Reset opacity to initial default
-    opacity = 0.3;
+    opacity = 0.2;
 
     // Reset date range to full
     if (allDates.length) {
@@ -439,7 +439,7 @@
         </select>
       {/if}
 
-      <label for="opacity-slider">💡 Adjust Opacity of Active Articles:</label>
+      <label for="opacity-slider">💡 Adjust Opacity:</label>
       <input id="opacity-slider" type="range" min="0.01" max="1" step="0.1" bind:value={opacity} on:input={handleOpacityChange} />
 
       <div class="date-controls">
