@@ -147,15 +147,20 @@
         // Intersection: point must satisfy all active filters
         const isActive = inSearch && inSelection && inDateRange;
 
+        // Determine if any filter/search is active
+        const filtersActive = hasSearch || hasSelection;
+
         ctx.beginPath();
         // Keep point radius constant in screen pixels by compensating for zoom
         ctx.arc(margin.left + xScale(d.x), margin.top + yScale(d.y), Math.max(0.5, radius / t.k), 0, Math.PI * 2);
         ctx.fillStyle = colorScale(d[domainColumn]);
-        // Apply user opacity to all points; dim inactive ones
-        const activeAlpha = Math.max(0, Math.min(1, .8));
+        // Opacity logic:
+        // - If no filters/search, all dots use slider value
+        // - If filters/search active, active dots use stable opacity, inactive use slider value
+        const activeAlpha = 0.9;
         const inactiveAlpha = Math.max(0, Math.min(1, opacity));
-        ctx.globalAlpha = isActive ? activeAlpha : inactiveAlpha;
-              
+        ctx.globalAlpha = filtersActive ? (isActive ? activeAlpha : inactiveAlpha) : inactiveAlpha;
+
         ctx.fill();
         ctx.globalAlpha = .2; // reset for next operations
       });

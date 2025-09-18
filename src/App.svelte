@@ -1,53 +1,62 @@
 <script>
-  import { onMount } from 'svelte';
-  import Papa from 'papaparse';
-  import Scatterplot from './components/Scatterplot.svelte';
-  import RangeSlider from './components/RangeSlider.svelte';
+  import { onMount } from "svelte";
+  import Papa from "papaparse";
+  import Scatterplot from "./components/Scatterplot.svelte";
+  import RangeSlider from "./components/RangeSlider.svelte";
 
-  const DATA_URL = import.meta.env.VITE_DATA_URL || 'data.csv';
+  const DATA_URL = import.meta.env.VITE_DATA_URL || "data.csv";
   $: isDefaultRemote = /^https?:\/\//i.test(DATA_URL);
-  const DATE_CAP_STR = '2025-07-01';
+  const DATE_CAP_STR = "2025-07-01";
   const MAX_DATE_CAP = new Date(DATE_CAP_STR);
-  
-  let data = [], columns = [], domainColumn = "org", uniqueValues = [];
-  let selectedValues = new Set(); 
-  let opacity = 0.3, startDate = null, endDate = null;
-  let filteredData = [], allDates = [];
+
+  let data = [],
+    columns = [],
+    domainColumn = "org",
+    uniqueValues = [];
+  let selectedValues = new Set();
+  let opacity = 0.02,
+    startDate = null,
+    endDate = null;
+  let filteredData = [],
+    allDates = [];
   let startDateIndex = 0;
   let endDateIndex = 0;
   let isPlaying = false;
   let playInterval = null;
   let highlightedData = [];
-  $: highlightedSet = new Set(highlightedData.map(d => d.id));
-
+  $: highlightedSet = new Set(highlightedData.map((d) => d.id));
 
   let searchQuery = "";
   let showAnnotations = false;
 
   // Only allow org or cluster as color-by options
-  $: allowedDomainColumns = columns.filter((c) => c === 'org' || c === 'cluster');
+  $: allowedDomainColumns = columns.filter(
+    (c) => c === "org" || c === "cluster",
+  );
   $: {
     // Wait until columns are known before adjusting the selected domain
     if (!columns || columns.length === 0) {
       // do nothing until parsed
-    } else if (allowedDomainColumns.length && !allowedDomainColumns.includes(domainColumn)) {
+    } else if (
+      allowedDomainColumns.length &&
+      !allowedDomainColumns.includes(domainColumn)
+    ) {
       domainColumn = allowedDomainColumns[0];
     } else if (allowedDomainColumns.length === 0) {
-      domainColumn = '';
+      domainColumn = "";
     }
   }
 
-
   // Loading/progress state
   let isLoading = false;
-  let loadPhase = 'idle'; // 'downloading' | 'parsing' | 'idle'
+  let loadPhase = "idle"; // 'downloading' | 'parsing' | 'idle'
   let loadBytes = 0;
   let loadTotal = 0;
   let loadProgress = 0; // 0-100 when total known
 
   function formatBytes(bytes) {
-    if (!bytes || bytes <= 0) return '0 KB';
-    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    if (!bytes || bytes <= 0) return "0 KB";
+    const units = ["B", "KB", "MB", "GB", "TB"];
     let v = bytes;
     let i = 0;
     while (v >= 1024 && i < units.length - 1) {
@@ -61,18 +70,21 @@
   onMount(async () => {
     try {
       isLoading = true;
-      loadPhase = 'downloading';
+      loadPhase = "downloading";
       loadBytes = 0;
       loadTotal = 0;
       loadProgress = 0;
 
-      const response = await fetch(DATA_URL, { mode: 'cors', cache: 'no-store' });
+      const response = await fetch(DATA_URL, {
+        mode: "cors",
+        cache: "no-store",
+      });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-      const len = response.headers.get('content-length');
+      const len = response.headers.get("content-length");
       loadTotal = len ? parseInt(len, 10) : 0;
 
-      let csvText = '';
+      let csvText = "";
       if (response.body && response.body.getReader) {
         const reader = response.body.getReader();
         const chunks = [];
@@ -95,19 +107,18 @@
           offset += c.byteLength;
         }
         csvText = new TextDecoder().decode(full);
-        console.log('CSV head:', csvText.split('\n').slice(0, 5).join('\n'));
-
+        console.log("CSV head:", csvText.split("\n").slice(0, 5).join("\n"));
       } else {
         // Fallback without streaming/progress
         csvText = await response.text();
       }
 
       // Parse phase (indeterminate)
-      loadPhase = 'parsing';
+      loadPhase = "parsing";
       await Promise.resolve(parseCSV(csvText));
-      loadPhase = 'idle';
+      loadPhase = "idle";
     } catch (err) {
-      console.error('Failed to load CSV:', err);
+      console.error("Failed to load CSV:", err);
     } finally {
       isLoading = false;
     }
@@ -115,49 +126,61 @@
     return () => {
       if (playInterval) clearInterval(playInterval);
     };
-  });  
+  });
 
-  $: filteredData = data.map(d => ({
+  $: filteredData = data.map((d) => ({
     ...d,
-    isHighlighted: 
-      (selectedValues.size > 0 && selectedValues.size < uniqueValues.length) && 
+    isHighlighted:
+      selectedValues.size > 0 &&
+      selectedValues.size < uniqueValues.length &&
       selectedValues.has(d[domainColumn]) &&
       (!startDate || d.date >= startDate) &&
-      (!endDate || d.date <= endDate)
+      (!endDate || d.date <= endDate),
   }));
 
-
-  $: startPercent = allDates.length > 1 ? (startDateIndex / (allDates.length - 1)) * 100 : 0;
-  $: endPercent = allDates.length > 1 ? (endDateIndex / (allDates.length - 1)) * 100 : 100;
+  $: startPercent =
+    allDates.length > 1 ? (startDateIndex / (allDates.length - 1)) * 100 : 0;
+  $: endPercent =
+    allDates.length > 1 ? (endDateIndex / (allDates.length - 1)) * 100 : 100;
 
   // Highest index allowed under the cap date (last date <= MAX_DATE_CAP)
   $: maxAllowedIndex = (() => {
     if (!allDates || allDates.length === 0) return 0;
     const capTs = MAX_DATE_CAP.getTime();
     // find first index with date > cap, then step back one
-    const firstAfter = allDates.findIndex(d => d.getTime() > capTs);
-    return firstAfter === -1 ? allDates.length - 1 : Math.max(0, firstAfter - 1);
+    const firstAfter = allDates.findIndex((d) => d.getTime() > capTs);
+    return firstAfter === -1
+      ? allDates.length - 1
+      : Math.max(0, firstAfter - 1);
   })();
-
-
 
   function parseCSV(csvText) {
     // Lowercase headers before parsing
     const lines = csvText.split(/\r?\n/);
     if (lines.length > 0) {
       const headerLine = lines[0];
-      const lowerHeader = headerLine.split(',').map(h => h.trim().toLowerCase()).join(',');
+      const lowerHeader = headerLine
+        .split(",")
+        .map((h) => h.trim().toLowerCase())
+        .join(",");
       lines[0] = lowerHeader;
-      csvText = lines.join('\n');
+      csvText = lines.join("\n");
     }
     const result = Papa.parse(csvText, { header: true });
-    data = result.data.filter(d => d.x && d.y && d.date)
-      .map((d, i) => ({ ...d, x: +d.x, y: +d.y, date: new Date(d.date), id: i }));
+    data = result.data
+      .filter((d) => d.x && d.y && d.date)
+      .map((d, i) => ({
+        ...d,
+        x: +d.x,
+        y: +d.y,
+        date: new Date(d.date),
+        id: i,
+      }));
 
     columns = result.meta.fields || [];
-    allDates = [...new Set(data.map(d => d.date.getTime()))]
+    allDates = [...new Set(data.map((d) => d.date.getTime()))]
       .sort((a, b) => a - b)
-      .map(t => new Date(t));
+      .map((t) => new Date(t));
 
     startDate = allDates[0];
     endDate = allDates[allDates.length - 1];
@@ -172,23 +195,35 @@
     updateDateIndices();
 
     if (domainColumn) {
-      uniqueValues = [...new Set(data.map(d => d[domainColumn]).filter(v => v !== undefined && v !== null && v !== ''))].sort((a, b) => String(a).localeCompare(String(b)));
+      uniqueValues = [
+        ...new Set(
+          data
+            .map((d) => d[domainColumn])
+            .filter((v) => v !== undefined && v !== null && v !== ""),
+        ),
+      ].sort((a, b) => String(a).localeCompare(String(b)));
     }
   }
 
   function handleDomainChange(event) {
-  domainColumn = event.target.value;
-  uniqueValues = domainColumn ? [...new Set(data.map(d => d[domainColumn]).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b))) : [];
-  selectedValues = new Set();
-  showAnnotations = false;
+    domainColumn = event.target.value;
+    uniqueValues = domainColumn
+      ? [...new Set(data.map((d) => d[domainColumn]).filter(Boolean))].sort(
+          (a, b) => String(a).localeCompare(String(b)),
+        )
+      : [];
+    selectedValues = new Set();
+    showAnnotations = false;
   }
 
   function handleSelectionChange(event) {
-    const selectedOptions = [...event.target.selectedOptions].map(o => o.value);
-    
+    const selectedOptions = [...event.target.selectedOptions].map(
+      (o) => o.value,
+    );
+
     // Check if all values are selected
     const allSelected = selectedOptions.length === uniqueValues.length;
-    
+
     if (allSelected || selectedOptions.length === 0) {
       // If all values are selected or none are selected, clear the selection
       selectedValues = new Set();
@@ -196,13 +231,14 @@
     } else {
       // Only update selection if a subset is chosen
       selectedValues = new Set(selectedOptions);
-      highlightedData = data.filter(d =>
-        selectedValues.has(d[domainColumn]) &&
-        (!startDate || d.date >= startDate) &&
-        (!endDate || d.date <= endDate)
+      highlightedData = data.filter(
+        (d) =>
+          selectedValues.has(d[domainColumn]) &&
+          (!startDate || d.date >= startDate) &&
+          (!endDate || d.date <= endDate),
       );
     }
-    
+
     showAnnotations = false;
   }
 
@@ -219,18 +255,23 @@
     } else {
       // We're updating from actual date objects
       startDate = start;
-      endDate = end ? new Date(Math.min(end.getTime(), MAX_DATE_CAP.getTime())) : end;
+      endDate = end
+        ? new Date(Math.min(end.getTime(), MAX_DATE_CAP.getTime()))
+        : end;
     }
     showAnnotations = false;
-  // Keep indices in sync with possibly clamped dates
-  updateDateIndices();
+    // Keep indices in sync with possibly clamped dates
+    updateDateIndices();
   }
 
   function updateDateIndices() {
     // Find closest date indices based on the current startDate and endDate
     if (startDate) {
       const timestamp = startDate.getTime();
-      startDateIndex = Math.max(0, allDates.findIndex(d => d.getTime() >= timestamp));
+      startDateIndex = Math.max(
+        0,
+        allDates.findIndex((d) => d.getTime() >= timestamp),
+      );
     } else {
       startDateIndex = 0;
     }
@@ -241,7 +282,10 @@
       // choose the last index whose date <= timestamp (works with caps and inputs between dates)
       let ei = -1;
       for (let i = allDates.length - 1; i >= 0; i--) {
-        if (allDates[i].getTime() <= timestamp) { ei = i; break; }
+        if (allDates[i].getTime() <= timestamp) {
+          ei = i;
+          break;
+        }
       }
       endDateIndex = ei >= 0 ? ei : 0;
     } else {
@@ -256,7 +300,7 @@
   function handleDateChange(e, type) {
     if (e.detail !== undefined) {
       // Handle slider events
-      if (type === 'start') {
+      if (type === "start") {
         startDateIndex = e.detail;
         if (startDateIndex > endDateIndex) startDateIndex = endDateIndex;
       } else {
@@ -268,20 +312,20 @@
     } else {
       // Handle date input events
       const newDate = e.target.value ? new Date(e.target.value) : null;
-      
-      if (type === 'start') {
+
+      if (type === "start") {
         updateSelectedDates(newDate, endDate);
       } else {
         updateSelectedDates(startDate, newDate);
       }
-      
+
       // Update indices based on the new dates
       updateDateIndices();
     }
   }
 
   function formatDateInput(date) {
-    return date ? date.toISOString().split('T')[0] : '';
+    return date ? date.toISOString().split("T")[0] : "";
   }
 
   function handleFileUpload(event) {
@@ -336,7 +380,7 @@
     searchQuery = event.target.value;
     showAnnotations = false;
   }
-  
+
   function handleOpacityChange() {
     showAnnotations = false;
   }
@@ -349,7 +393,9 @@
     }
 
     // Reset domain to default ('org' if available, otherwise first allowed)
-    const defaultDomain = columns.includes('org') ? 'org' : (allowedDomainColumns[0] || '');
+    const defaultDomain = columns.includes("org")
+      ? "org"
+      : allowedDomainColumns[0] || "";
     domainColumn = defaultDomain;
 
     // Clear selection and highlights
@@ -357,11 +403,11 @@
     highlightedData = [];
 
     // Reset search and annotations
-    searchQuery = '';
+    searchQuery = "";
     showAnnotations = false;
 
     // Reset opacity to initial default
-    opacity = 0.2;
+    opacity = 0.02;
 
     // Reset date range to full
     if (allDates.length) {
@@ -374,6 +420,7 @@
       startDateIndex = 0;
       endDateIndex = 0;
     }
+
   }
 </script>
 
@@ -382,14 +429,14 @@
   <div class="title-section">
     <h1 class="title">Semantic Map [DEMO]</h1>
     <p class="subtitle">
-      Each dot represents an article. When the dots are closer together, the articles are similar in meaning.
+      Each dot represents an article. When the dots are closer together, the
+      articles are similar in meaning.
     </p>
   </div>
 
   <div class="content">
     <!-- Filters Panel -->
     <div class="filter-panel">
-
       <div class="filter-actions">
         <button class="reset-btn" on:click={resetFilters}>Reset filters</button>
       </div>
@@ -399,30 +446,51 @@
           <summary>➕ What is a Semantic Map?</summary>
           <div class="nerd-box-content">
             <p>
-              Semantic maps are tools that allow users to visually explore how different topics and ideas are connected. 
-              By analyzing the relationships between articles, these maps can reveal patterns and clusters in the data.
+              Semantic maps are tools that allow users to visually explore how
+              different topics and ideas are connected. By analyzing the
+              relationships between articles, these maps can reveal patterns and
+              clusters in the data.
             </p>
-            <p>
-              Newsrooms can use semantic maps to:
-            </p>
+            <p>Newsrooms can use semantic maps to:</p>
             <ul>
-              <li>Audit their coverage by identifying themes that may be underrepresented or overlooked.</li>
+              <li>
+                Audit their coverage by identifying themes that may be
+                underrepresented or overlooked.
+              </li>
               <li>Track how their editorial focus evolves over time.</li>
-              <li>Discover which topics are being covered by other outlets, offering opportunities to adjust their editorial focus or collaborate.</li>
+              <li>
+                Discover which topics are being covered by other outlets,
+                offering opportunities to adjust their editorial focus or
+                collaborate.
+              </li>
             </ul>
           </div>
         </details>
       </div>
 
       <label for="file-upload">📁 Upload CSV:</label>
-      <input id="file-upload" type="file" accept=".csv" on:change={handleFileUpload} />
-      
+      <input
+        id="file-upload"
+        type="file"
+        accept=".csv"
+        on:change={handleFileUpload}
+      />
+
       <label for="search-input">🔍 Search Text (supports regex):</label>
-      <input id="search-input" type="text" placeholder="Search or regex pattern..." on:input={handleSearch} />
+      <input
+        id="search-input"
+        type="text"
+        placeholder="Search or regex pattern..."
+        on:input={handleSearch}
+      />
 
       {#if allowedDomainColumns.length}
         <label for="domain-column">🎨 Color by Column:</label>
-        <select id="domain-column" on:change={handleDomainChange} bind:value={domainColumn}>
+        <select
+          id="domain-column"
+          on:change={handleDomainChange}
+          bind:value={domainColumn}
+        >
           <option value="" disabled>Select column</option>
           {#each allowedDomainColumns as column}
             <option value={column}>{column}</option>
@@ -431,29 +499,59 @@
       {/if}
 
       {#if uniqueValues.length}
-        <label for="value-select">✨ Highlight Values (hold Shift/Cmd to select multiple):</label>
-        <select id="value-select" multiple size="5" class="multi-select" on:change={handleSelectionChange}>
+        <label for="value-select"
+          >✨ Highlight Values (hold Shift/Cmd to select multiple):</label
+        >
+        <select
+          id="value-select"
+          multiple
+          size="5"
+          class="multi-select"
+          on:change={handleSelectionChange}
+        >
           {#each uniqueValues as item}
-            <option value={item} selected={selectedValues.has(item)}>{item}</option>
+            <option value={item} selected={selectedValues.has(item)}
+              >{item}</option
+            >
           {/each}
         </select>
       {/if}
 
       <label for="opacity-slider">💡 Adjust Opacity:</label>
-      <input id="opacity-slider" type="range" min="0.01" max="1" step="0.1" bind:value={opacity} on:input={handleOpacityChange} />
+      <input
+        id="opacity-slider"
+        type="range"
+        min="0"
+        max=".3"
+        step="0.01"
+        bind:value={opacity}
+        on:input={handleOpacityChange}
+      />
 
       <div class="date-controls">
         <label for="start-date">📅 Date Range:</label>
-  <input id="start-date" type="date" value={formatDateInput(startDate)} max="2025-07-01" on:change={(e) => handleDateChange(e, 'start')} />
-  <input id="end-date" type="date" value={formatDateInput(endDate)} max="2025-07-01" on:change={(e) => handleDateChange(e, 'end')} />
+        <input
+          id="start-date"
+          type="date"
+          value={formatDateInput(startDate)}
+          max="2025-07-01"
+          on:change={(e) => handleDateChange(e, "start")}
+        />
+        <input
+          id="end-date"
+          type="date"
+          value={formatDateInput(endDate)}
+          max="2025-07-01"
+          on:change={(e) => handleDateChange(e, "end")}
+        />
 
-        <RangeSlider 
-          min={0} 
-          max={maxAllowedIndex} 
-          bind:startValue={startDateIndex} 
+        <RangeSlider
+          min={0}
+          max={maxAllowedIndex}
+          bind:startValue={startDateIndex}
           bind:endValue={endDateIndex}
-          on:startChange={(e) => handleDateChange(e, 'start')}
-          on:endChange={(e) => handleDateChange(e, 'end')}
+          on:startChange={(e) => handleDateChange(e, "start")}
+          on:endChange={(e) => handleDateChange(e, "end")}
         />
 
         <div class="date-range-labels">
@@ -479,44 +577,48 @@
 
     <div class="scatterplot-container">
       {#if filteredData.length}
-        <Scatterplot 
-          data={filteredData} 
-          {domainColumn} 
-          {selectedValues} 
-          {opacity} 
+        <Scatterplot
+          data={filteredData}
+          {domainColumn}
+          {selectedValues}
+          {opacity}
           {searchQuery}
           {showAnnotations}
           {highlightedData}
-          {startDate}    
-          {endDate}      
+          {startDate}
+          {endDate}
         />
-      {:else}
-        {#if isLoading}
-          <div class="progress-wrap">
-            <div class="progress-header">
-              {#if loadPhase === 'downloading'}
-                Downloading CSV...
-              {:else if loadPhase === 'parsing'}
-                Parsing CSV...
-              {:else}
-                Loading...
-              {/if}
-            </div>
-            {#if loadPhase === 'downloading'}
-              {#if loadTotal}
-                <div class="progress-bar"><div class="progress-fill" style="width: {loadProgress}%"></div></div>
-                <div class="progress-label">{loadProgress}% ({formatBytes(loadBytes)} / {formatBytes(loadTotal)})</div>
-              {:else}
-                <div class="progress-bar indeterminate"></div>
-                <div class="progress-label">{formatBytes(loadBytes)}</div>
-              {/if}
+      {:else if isLoading}
+        <div class="progress-wrap">
+          <div class="progress-header">
+            {#if loadPhase === "downloading"}
+              Downloading CSV...
+            {:else if loadPhase === "parsing"}
+              Parsing CSV...
             {:else}
-              <div class="progress-bar indeterminate"></div>
+              Loading...
             {/if}
           </div>
-        {:else}
-          <p>Waiting for data</p>
-        {/if}
+          {#if loadPhase === "downloading"}
+            {#if loadTotal}
+              <div class="progress-bar">
+                <div class="progress-fill" style="width: {loadProgress}%"></div>
+              </div>
+              <div class="progress-label">
+                {loadProgress}% ({formatBytes(loadBytes)} / {formatBytes(
+                  loadTotal,
+                )})
+              </div>
+            {:else}
+              <div class="progress-bar indeterminate"></div>
+              <div class="progress-label">{formatBytes(loadBytes)}</div>
+            {/if}
+          {:else}
+            <div class="progress-bar indeterminate"></div>
+          {/if}
+        </div>
+      {:else}
+        <p>Waiting for data</p>
       {/if}
     </div>
   </div>
@@ -534,10 +636,10 @@
     display: flex;
     flex-direction: column;
     gap: 1rem;
-    font-family: 'Inter', sans-serif;
+    font-family: "Inter", sans-serif;
     height: 100%; /* fill viewport */
     overflow: hidden; /* prevent page scroll */
-  box-sizing: border-box; /* include padding in height to avoid clipping */
+    box-sizing: border-box; /* include padding in height to avoid clipping */
   }
 
   .title-section {
@@ -556,24 +658,24 @@
     display: flex;
     gap: 1.5rem;
     align-items: flex-start; /* Align items at the top */
-  flex: 1;           /* take remaining height below the title */
-  min-height: 0;     /* allow children to shrink */
-  overflow: hidden;  /* no page scroll from content */
+    flex: 1; /* take remaining height below the title */
+    min-height: 0; /* allow children to shrink */
+    overflow: hidden; /* no page scroll from content */
   }
 
   .filter-panel {
     background: #f9fafb;
     /* border-right: #969696 1px solid; */
     padding: 1.5rem;
-    width: 300px; 
+    width: 300px;
     display: flex;
     flex-direction: column;
     gap: 1rem;
-    height: 100%;     /* fill the content column height */
-    overflow: auto;   /* panel itself scrolls */
-  box-sizing: border-box; /* keep padding within allotted height */
-  -webkit-overflow-scrolling: touch; /* smoother scrolling on macOS/iOS */
-  overscroll-behavior: contain; /* keep scroll events within the panel */
+    height: 100%; /* fill the content column height */
+    overflow: auto; /* panel itself scrolls */
+    box-sizing: border-box; /* keep padding within allotted height */
+    -webkit-overflow-scrolling: touch; /* smoother scrolling on macOS/iOS */
+    overscroll-behavior: contain; /* keep scroll events within the panel */
   }
 
   .filter-actions {
@@ -604,8 +706,8 @@
     font-size: 0.9rem;
     border: 1px solid #ccc;
     border-radius: 5px;
-    width: 100%; 
-    box-sizing: border-box; 
+    width: 100%;
+    box-sizing: border-box;
   }
 
   /* removed checkbox styles after switching to multi-select */
@@ -616,31 +718,30 @@
     border-color: #4c8bf5;
   }
 
-   .multi-select {
+  .multi-select {
     min-height: 150px;
     overflow-y: auto;
-    width: 100%; 
+    width: 100%;
   }
 
-
   .scatterplot-container {
-    flex: 1;          /* take remaining width next to panel */
+    flex: 1; /* take remaining width next to panel */
     display: flex;
     justify-content: center;
     align-items: center;
     background: #fff;
     border-radius: 10px;
-    height: 100%;     /* fill vertical space in content */
-    min-height: 0;    /* allow to shrink with viewport */
+    height: 100%; /* fill vertical space in content */
+    min-height: 0; /* allow to shrink with viewport */
     padding: 1rem;
     /* box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.05); */
-  box-sizing: border-box; /* ensure padding doesn't cause vertical overflow */
+    box-sizing: border-box; /* ensure padding doesn't cause vertical overflow */
   }
 
   .date-controls label {
-    display: block; 
-    margin-bottom: 0.5rem; 
-    font-weight: 600; 
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
   }
 
   .date-controls input[type="date"] {
@@ -688,7 +789,7 @@
 
   .nerd-box summary {
     /* toggle */
-    
+
     font-weight: bold;
     cursor: pointer;
     list-style: none;
@@ -712,14 +813,56 @@
   }
 
   /* Progress styles */
-  .progress-wrap { display: flex; flex-direction: column; gap: 0.25rem; margin-bottom: 0.5rem; }
-  .progress-header { font-size: 0.9rem; color: #333; font-weight: 600; }
-  .progress-bar { position: relative; height: 8px; background: #e5e7eb; border-radius: 999px; overflow: hidden; }
-  .progress-fill { height: 100%; background: #4c8bf5; width: 0%; transition: width 120ms linear; }
-  .progress-bar.indeterminate::before {
-    content: ""; position: absolute; left: -40%; width: 40%; height: 100%;
-    background: #4c8bf5; animation: indet 1s infinite;
+  .progress-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin-bottom: 0.5rem;
   }
-  @keyframes indet { 0% { left: -40%; } 50% { left: 60%; } 100% { left: 100%; } }
-  .progress-label { font-size: 0.8rem; color: #555; }
+  .progress-header {
+    font-size: 0.9rem;
+    color: #333;
+    font-weight: 600;
+  }
+  .progress-bar {
+    position: relative;
+    height: 8px;
+    background: #e5e7eb;
+    border-radius: 999px;
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    background: #4c8bf5;
+    width: 0%;
+    transition: width 120ms linear;
+  }
+  .progress-bar.indeterminate::before {
+    content: "";
+    position: absolute;
+    left: -40%;
+    width: 40%;
+    height: 100%;
+    background: #4c8bf5;
+    animation: indet 1s infinite;
+  }
+
+  #opacity-slider {
+    padding: 0em !important;
+  }
+  @keyframes indet {
+    0% {
+      left: -40%;
+    }
+    50% {
+      left: 60%;
+    }
+    100% {
+      left: 100%;
+    }
+  }
+  .progress-label {
+    font-size: 0.8rem;
+    color: #555;
+  }
 </style>
