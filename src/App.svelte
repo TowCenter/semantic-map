@@ -4,8 +4,51 @@
   import Scatterplot from "./components/Scatterplot.svelte";
   import RangeSlider from "./components/RangeSlider.svelte";
 
-  const DATA_URL = import.meta.env.VITE_DATA_URL || "data.csv";
-  $: isDefaultRemote = /^https?:\/\//i.test(DATA_URL);
+  // Resolve data URL from query params (url | filename [+ bucket]) or env fallback
+  let resolvedDataUrl = "";
+  $: isDefaultRemote = /^https?:\/\//i.test(resolvedDataUrl);
+  function resolveDataUrl() {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const directUrl = params.get("url");
+      const filename = params.get("filename");
+      const bucket = params.get("bucket");
+
+      // Highest priority: full URL provided
+      if (directUrl && /^https?:\/\//i.test(directUrl)) return directUrl;
+
+      // Build from filename and (optional) bucket
+      if (filename) {
+        // Determine base from bucket param or env
+        let base = "";
+        if (bucket) {
+          if (/^https?:\/\//i.test(bucket)) {
+            base = bucket;
+          } else if (bucket.includes(".")) {
+            // Looks like a host (e.g. my-bucket.s3.amazonaws.com or custom domain)
+            base = `https://${bucket}`;
+          } else {
+            // Treat as bare S3 bucket name
+            base = `https://${bucket}.s3.amazonaws.com`;
+          }
+        } else {
+          // Env-configured default base (e.g. https://my-bucket.s3.amazonaws.com/)
+          base =
+            import.meta.env.VITE_S3_BASE_URL ||
+            import.meta.env.VITE_DATA_BASE_URL ||
+            "https://pink-slime-public.s3.amazonaws.com/";
+        }
+        if (base && !base.endsWith("/")) base += "/";
+        return base ? base + filename : filename;
+      }
+
+      // Fallbacks: explicit env or local file in /public
+      return import.meta.env.VITE_DATA_URL || "data.csv";
+    } catch (e) {
+      console.warn("Failed to resolve data URL from query params:", e);
+      return import.meta.env.VITE_DATA_URL || "data.csv";
+    }
+  }
 
   let data = [],
     columns = [],
@@ -33,7 +76,7 @@
 
   // Only allow org or cluster as color-by options
   $: allowedDomainColumns = columns.filter(
-    (c) => c === "org" || c === "cluster",
+    (c) => c === "org" || c === "state",
   );
   $: {
     // Wait until columns are known before adjusting the selected domain
@@ -77,7 +120,10 @@
       loadTotal = 0;
       loadProgress = 0;
 
-      const response = await fetch(DATA_URL, {
+      // Determine the final CSV URL once on mount
+      resolvedDataUrl = resolveDataUrl();
+
+      const response = await fetch(resolvedDataUrl, {
         mode: "cors",
         cache: "no-store",
       });
