@@ -6,15 +6,16 @@
   import { schemeCategory10 } from 'd3-scale-chromatic';
   import { select, zoom, zoomIdentity } from 'd3';
     
-    export let data = [];
-    export let domainColumn = "";
-    export let opacity = 1;
-    export let selectedValues = new Set();
-    export let searchQuery = ""; 
-    export let showAnnotations = true;
-    export let highlightedData = [];
-    export let startDate = null;  // Add these new props
-    export let endDate = null;    // Add these new props
+  export let data = [];
+  export let domainColumn = "";
+  export let opacity = 1;
+  export let selectedValues = new Set();
+  export let searchQuery = ""; 
+  export let showAnnotations = true;
+  export let highlightedData = [];
+  export let startDate = null;  // Add these new props
+  export let endDate = null;    // Add these new props
+  export let uniqueValues = [];
 
 
     // let annotations = [
@@ -88,14 +89,10 @@
       .domain(yDomain)
       .range([innerHeight, 0]);
     
-    // Reactive color scale to follow data and domainColumn changes
+    // Reactive color scale to follow domainColumn and uniqueValues changes
     let colorScale;
     $: colorScale = scaleOrdinal(schemeCategory10)
-      .domain(
-        domainColumn
-          ? [...new Set(data.map(d => d[domainColumn]).filter(v => v !== undefined && v !== null && v !== ''))]
-          : []
-      );
+      .domain(domainColumn ? uniqueValues : []);
 
   // Precompute date bounds (used for defaults when needed)
   $: minDate = data.length ? new Date(Math.min(...data.map(d => d.date.getTime()))) : null;
@@ -131,36 +128,16 @@
       ctx.scale(t.k, t.k);
 
       data.forEach(d => {
-        // Determine active filters
-        const hasSearch = !!(searchQuery && String(searchQuery).trim().length);
-        const inSearch = hasSearch
-          ? (matchesSearchQuery(d.title ?? '', searchQuery) || matchesSearchQuery(d.text ?? '', searchQuery))
-          : true;
-
-        const hasSelection = selectedValues && selectedValues.size > 0 && selectedValues.size < uniqueDomainCount;
-        const inSelection = hasSelection ? selectedValues.has(d[domainColumn]) : true;
-
-        const inDateRange = (startDate && endDate)
-          ? (d.date >= startDate && d.date <= endDate)
-          : true;
-
-        // Intersection: point must satisfy all active filters
-        const isActive = inSearch && inSelection && inDateRange;
-
-        // Determine if any filter/search is active
-        const filtersActive = hasSearch || hasSelection;
-
+        // Use isActive and isHighlighted from filteredData
         ctx.beginPath();
-        // Keep point radius constant in screen pixels by compensating for zoom
         ctx.arc(margin.left + xScale(d.x), margin.top + yScale(d.y), Math.max(0.5, radius / t.k), 0, Math.PI * 2);
         ctx.fillStyle = colorScale(d[domainColumn]);
         // Opacity logic:
-        // - If no filters/search, all dots use slider value
-        // - If filters/search active, active dots use stable opacity, inactive use slider value
+        // - If isActive, use high opacity
+        // - Otherwise, use slider value
         const activeAlpha = 0.9;
         const inactiveAlpha = Math.max(0, Math.min(1, opacity));
-        ctx.globalAlpha = filtersActive ? (isActive ? activeAlpha : inactiveAlpha) : inactiveAlpha;
-
+        ctx.globalAlpha = d.isActive ? activeAlpha : inactiveAlpha;
         ctx.fill();
         ctx.globalAlpha = .2; // reset for next operations
       });

@@ -6,8 +6,6 @@
 
   const DATA_URL = import.meta.env.VITE_DATA_URL || "data.csv";
   $: isDefaultRemote = /^https?:\/\//i.test(DATA_URL);
-  const DATE_CAP_STR = "2025-07-01";
-  const MAX_DATE_CAP = new Date(DATE_CAP_STR);
 
   let data = [],
     columns = [],
@@ -28,6 +26,10 @@
 
   let searchQuery = "";
   let showAnnotations = false;
+
+  // Computed min/max dates from actual data
+  $: minDateFromData = allDates.length > 0 ? allDates[0] : null;
+  $: maxDateFromData = allDates.length > 0 ? allDates[allDates.length - 1] : null;
 
   // Only allow org or cluster as color-by options
   $: allowedDomainColumns = columns.filter(
@@ -128,31 +130,50 @@
     };
   });
 
-  $: filteredData = data.map((d) => ({
-    ...d,
-    isHighlighted:
-      selectedValues.size > 0 &&
-      selectedValues.size < uniqueValues.length &&
-      selectedValues.has(d[domainColumn]) &&
-      (!startDate || d.date >= startDate) &&
-      (!endDate || d.date <= endDate),
-  }));
+  $: {
+    // Determine if any filter is active
+    const fullDateRange = allDates.length && startDateIndex === 0 && endDateIndex === allDates.length - 1;
+    const hasSelection = selectedValues.size > 0 && selectedValues.size < uniqueValues.length;
+    const hasSearch = searchQuery && searchQuery.trim().length > 0;
+    const anyFilterActive = !fullDateRange || hasSelection || hasSearch;
+
+    filteredData = data.map((d) => {
+      const inDateRange = (!startDate || d.date >= startDate) && (!endDate || d.date <= endDate);
+      const inSelection = hasSelection ? selectedValues.has(d[domainColumn]) : true;
+      let inSearch = true;
+      if (hasSearch) {
+        try {
+          const regex = new RegExp(searchQuery, "i");
+          inSearch = regex.test(d.title ?? "") || regex.test(d.text ?? "");
+        } catch {
+          inSearch = (d.title ?? "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+                     (d.text ?? "").toLowerCase().includes(searchQuery.toLowerCase());
+        }
+      }
+      let isActive = false;
+      let isHighlighted = false;
+      if (anyFilterActive) {
+        isActive = inDateRange && inSelection && inSearch;
+        isHighlighted = inDateRange && inSelection && inSearch;
+      } else {
+        isActive = false;
+        isHighlighted = false;
+      }
+      return {
+        ...d,
+        isActive,
+        isHighlighted,
+      };
+    });
+  }
 
   $: startPercent =
     allDates.length > 1 ? (startDateIndex / (allDates.length - 1)) * 100 : 0;
   $: endPercent =
     allDates.length > 1 ? (endDateIndex / (allDates.length - 1)) * 100 : 100;
 
-  // Highest index allowed under the cap date (last date <= MAX_DATE_CAP)
-  $: maxAllowedIndex = (() => {
-    if (!allDates || allDates.length === 0) return 0;
-    const capTs = MAX_DATE_CAP.getTime();
-    // find first index with date > cap, then step back one
-    const firstAfter = allDates.findIndex((d) => d.getTime() > capTs);
-    return firstAfter === -1
-      ? allDates.length - 1
-      : Math.max(0, firstAfter - 1);
-  })();
+  // Use actual max date from data instead of arbitrary cap
+  $: maxAllowedIndex = allDates.length > 0 ? allDates.length - 1 : 0;
 
   function parseCSV(csvText) {
     // Lowercase headers before parsing
@@ -184,14 +205,8 @@
 
     startDate = allDates[0];
     endDate = allDates[allDates.length - 1];
-    // Clamp initial end date to cap so input isn't invalid
-    if (endDate && endDate.getTime() > MAX_DATE_CAP.getTime()) {
-      endDate = new Date(MAX_DATE_CAP);
-    }
     startDateIndex = 0;
-    // set to the last permissible index under the cap
-    endDateIndex = maxAllowedIndex;
-    // Recompute indices to reflect any clamping
+    endDateIndex = allDates.length - 1;
     updateDateIndices();
 
     if (domainColumn) {
@@ -246,26 +261,17 @@
 
   function updateSelectedDates(start, end, fromIndices = false) {
     if (fromIndices) {
-      // If we're updating from indices, convert them to actual dates
       startDate = allDates[start] || allDates[0];
       endDate = allDates[end] || allDates[allDates.length - 1];
-      if (endDate && endDate.getTime() > MAX_DATE_CAP.getTime()) {
-        endDate = new Date(MAX_DATE_CAP);
-      }
     } else {
-      // We're updating from actual date objects
       startDate = start;
-      endDate = end
-        ? new Date(Math.min(end.getTime(), MAX_DATE_CAP.getTime()))
-        : end;
+      endDate = end;
     }
     showAnnotations = false;
-    // Keep indices in sync with possibly clamped dates
     updateDateIndices();
   }
 
   function updateDateIndices() {
-    // Find closest date indices based on the current startDate and endDate
     if (startDate) {
       const timestamp = startDate.getTime();
       startDateIndex = Math.max(
@@ -277,9 +283,7 @@
     }
 
     if (endDate) {
-      const capTs = MAX_DATE_CAP.getTime();
-      const timestamp = Math.min(endDate.getTime(), capTs);
-      // choose the last index whose date <= timestamp (works with caps and inputs between dates)
+      const timestamp = endDate.getTime();
       let ei = -1;
       for (let i = allDates.length - 1; i >= 0; i--) {
         if (allDates[i].getTime() <= timestamp) {
@@ -287,12 +291,11 @@
           break;
         }
       }
-      endDateIndex = ei >= 0 ? ei : 0;
+      endDateIndex = ei >= 0 ? ei : allDates.length - 1;
     } else {
-      endDateIndex = maxAllowedIndex;
+      endDateIndex = allDates.length - 1;
     }
 
-    // Ensure indices are in valid range
     if (startDateIndex > endDateIndex) startDateIndex = endDateIndex;
     if (endDateIndex < startDateIndex) endDateIndex = startDateIndex;
   }
@@ -343,9 +346,10 @@
     let newStartIndex = startDateIndex + days;
     let newEndIndex = endDateIndex + days;
 
+    // Handle boundary conditions
     if (newStartIndex < 0) {
       newStartIndex = 0;
-      newEndIndex = rangeDuration;
+      newEndIndex = Math.min(rangeDuration, allDates.length - 1);
     }
 
     if (newEndIndex >= allDates.length) {
@@ -409,6 +413,9 @@
     // Reset opacity to initial default
     opacity = 0.02;
 
+    // Force Svelte to update opacity binding
+    opacity = +opacity;
+
     // Reset date range to full
     if (allDates.length) {
       startDateIndex = 0;
@@ -420,7 +427,6 @@
       startDateIndex = 0;
       endDateIndex = 0;
     }
-
   }
 </script>
 
@@ -534,14 +540,14 @@
           id="start-date"
           type="date"
           value={formatDateInput(startDate)}
-          max="2025-07-01"
+          max={formatDateInput(maxDateFromData)}
           on:change={(e) => handleDateChange(e, "start")}
         />
         <input
           id="end-date"
           type="date"
           value={formatDateInput(endDate)}
-          max="2025-07-01"
+          max={formatDateInput(maxDateFromData)}
           on:change={(e) => handleDateChange(e, "end")}
         />
 
@@ -587,6 +593,7 @@
           {highlightedData}
           {startDate}
           {endDate}
+          uniqueValues={uniqueValues}
         />
       {:else if isLoading}
         <div class="progress-wrap">
@@ -850,6 +857,7 @@
   #opacity-slider {
     padding: 0em !important;
   }
+
   @keyframes indet {
     0% {
       left: -40%;
