@@ -3,6 +3,9 @@
   import Papa from "papaparse";
   import Scatterplot from "./components/Scatterplot.svelte";
   import RangeSlider from "./components/RangeSlider.svelte";
+  import DetailCard from "./components/DetailCard.svelte";
+  import { scaleOrdinal } from 'd3-scale';
+  import { schemeCategory10 } from 'd3-scale-chromatic';
 
   // Resolve data URL from query params (url | filename [+ bucket]) or env fallback
   let resolvedDataUrl = "";
@@ -69,6 +72,15 @@
 
   let searchQuery = "";
   let showAnnotations = false;
+  let hoveredData = null;
+  let selectedData = null; // Pinned/clicked data
+
+  // Display selected data if available, otherwise show hovered data
+  $: displayedData = selectedData || hoveredData;
+
+  // Color scale for the detail card
+  $: colorScale = scaleOrdinal(schemeCategory10)
+    .domain(domainColumn ? uniqueValues : []);
 
   // Computed min/max dates from actual data
   $: minDateFromData = allDates.length > 0 ? allDates[0] : null;
@@ -488,14 +500,14 @@
 
   <div class="content">
     <!-- Filters Panel -->
-    <div class="filter-panel">
+    <div class="filter-panel left-panel">
       <div class="filter-actions">
         <button class="reset-btn" on:click={resetFilters}>Reset filters</button>
       </div>
 
       <div class="nerd-box">
-        <details close>
-          <summary>➕ What is a Semantic Map?</summary>
+        <details>
+          <summary><span class="toggle-icon">+</span> What is a Semantic Map?</summary>
           <div class="nerd-box-content">
             <p>
               Semantic maps are tools that allow users to visually explore how
@@ -527,6 +539,27 @@
         accept=".csv"
         on:change={handleFileUpload}
       />
+
+      <div class="info-box">
+        <details>
+          <summary><span class="toggle-icon">+</span> CSV File Requirements</summary>
+          <div class="info-box-content">
+            <p>Your CSV file must include the following columns:</p>
+            <ul>
+              <li><strong>x, y</strong> - Numeric coordinates for positioning points on the scatterplot</li>
+              <li><strong>date</strong> - Date field for timeline filtering (ISO format recommended)</li>
+              <li><strong>title</strong> - Article headline or title (searchable)</li>
+              <li><strong>text</strong> - Article body or description (searchable)</li>
+              <li><strong>org or state</strong> - Categorical field for color-coding points (at least one required)</li>
+            </ul>
+            <p><strong>Optional columns:</strong></p>
+            <ul>
+              <li><strong>url, link, href, or permalink</strong> - Clickable link (Ctrl/Cmd + Click to open)</li>
+            </ul>
+            <p><em>Note: Column names are case-insensitive.</em></p>
+          </div>
+        </details>
+      </div>
 
       <label for="search-input">🔍 Search Text (supports regex):</label>
       <input
@@ -640,6 +673,8 @@
           {startDate}
           {endDate}
           uniqueValues={uniqueValues}
+          bind:hoveredData
+          bind:selectedData
         />
       {:else if isLoading}
         <div class="progress-wrap">
@@ -673,6 +708,19 @@
       {:else}
         <p>Waiting for data</p>
       {/if}
+    </div>
+
+    <!-- Right Panel for Speech Details -->
+    <div class="detail-panel">
+      <DetailCard
+        hoveredData={displayedData}
+        {data}
+        {domainColumn}
+        {colorScale}
+        {searchQuery}
+        isPinned={!!selectedData}
+        on:unpin={() => selectedData = null}
+      />
     </div>
   </div>
 </div>
@@ -718,7 +766,6 @@
 
   .filter-panel {
     background: #f9fafb;
-    /* border-right: #969696 1px solid; */
     padding: 1.5rem;
     width: 300px;
     display: flex;
@@ -729,6 +776,19 @@
     box-sizing: border-box; /* keep padding within allotted height */
     -webkit-overflow-scrolling: touch; /* smoother scrolling on macOS/iOS */
     overscroll-behavior: contain; /* keep scroll events within the panel */
+  }
+
+  .detail-panel {
+    background: #f9fafb;
+    padding: 1.5rem;
+    width: 450px;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    overflow: auto;
+    box-sizing: border-box;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
   }
 
   .filter-actions {
@@ -841,12 +901,21 @@
   }
 
   .nerd-box summary {
-    /* toggle */
-
     font-weight: bold;
     cursor: pointer;
     list-style: none;
-    margin-bottom: 0.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    user-select: none;
+  }
+
+  .nerd-box summary:hover {
+    opacity: 0.8;
+  }
+
+  .nerd-box details[open] summary {
+    margin-bottom: 0.75rem;
   }
 
   .nerd-box-content p {
@@ -863,6 +932,100 @@
   .nerd-box-content li {
     margin-bottom: 0.5rem; /* Add spacing between list items */
     color: #444;
+  }
+
+  .info-box {
+    background: #eef5ff;
+    border: 1px solid #4c8bf5;
+    padding: 1rem;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    line-height: 1.6;
+    margin-bottom: 1rem;
+  }
+
+  .info-box summary {
+    font-weight: bold;
+    cursor: pointer;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    user-select: none;
+  }
+
+  .info-box summary:hover {
+    opacity: 0.8;
+  }
+
+  .info-box details[open] summary {
+    margin-bottom: 0.75rem;
+  }
+
+  .info-box-content p {
+    margin-bottom: 0.75rem;
+    color: #444;
+  }
+
+  .info-box-content ul {
+    list-style-type: disc;
+    padding-left: 1.5rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .info-box-content li {
+    margin-bottom: 0.4rem;
+    color: #444;
+  }
+
+  .info-box-content strong {
+    color: #1565c0;
+  }
+
+  .info-box .toggle-icon {
+    background: rgba(76, 139, 245, 0.25);
+    color: #1565c0;
+  }
+
+  /* Toggle icon styling */
+  .toggle-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.1);
+    font-weight: bold;
+    font-size: 1.1rem;
+    line-height: 1;
+    flex-shrink: 0;
+    transition: all 0.2s ease;
+    position: relative;
+  }
+
+  .nerd-box .toggle-icon {
+    background: rgba(76, 139, 245, 0.25);
+    color: #1565c0;
+  }
+
+  /* Hide the default + text and use ::after for dynamic content */
+  .toggle-icon {
+    font-size: 0;
+  }
+
+  .toggle-icon::after {
+    content: '+';
+    font-size: 1.1rem;
+    font-weight: bold;
+  }
+
+  details[open] .toggle-icon::after {
+    content: '−';
+  }
+
+  summary:hover .toggle-icon {
+    transform: scale(1.1);
   }
 
   /* Progress styles */

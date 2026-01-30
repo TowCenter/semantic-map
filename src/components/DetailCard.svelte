@@ -1,98 +1,165 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, createEventDispatcher } from 'svelte';
   import { scaleOrdinal } from 'd3-scale';
   import { schemeCategory10 } from 'd3-scale-chromatic';
+
+  const dispatch = createEventDispatcher();
 
   export let hoveredData;
   export let domainColumn;
   export let data;
   export let colorScale;
-  export let posX = 0; // absolute position inside chart container
-  export let posY = 0;
+  export let searchQuery = "";
+  export let isPinned = false;
   export let labelOverride = null; // optional function(domain, value) -> label
   export let descriptionOverride = null; // optional function(domain, value) -> description
-  
+
   let filteredData = [];
   let dates = [];
   let selectedDate = null;
   let isPlaying = false;
-  let interval
-
-
-  // const colorScale = scaleOrdinal(schemeCategory10);
+  let interval;
 
   onMount(() => {
       colorScale.domain(data.map(d => d[domainColumn]));
   });
-  
+
+  // Function to highlight search terms in text
+  function highlightText(text, query) {
+    if (!query || !text) return text;
+
+    try {
+      // Try to use the query as a regex pattern
+      const regex = new RegExp(`(${query})`, 'gi');
+      return text.replace(regex, '<mark>$1</mark>');
+    } catch (e) {
+      // If regex is invalid, fall back to simple string search
+      const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(`(${escapedQuery})`, 'gi');
+      return text.replace(regex, '<mark>$1</mark>');
+    }
+  }
+
 </script>
 
-<div class="detail-card" style="left: {posX}px; top: {posY}px;">
+<div class="detail-card">
   {#if hoveredData}
-  <h1>{hoveredData.title}</h1>
-  <span style="background: {colorScale(hoveredData[domainColumn])};">
-      {labelOverride ? labelOverride(domainColumn, hoveredData[domainColumn]) : hoveredData[domainColumn]}</span>
-  <h2>{hoveredData.date.toISOString().split('T')[0]}</h2>  
-  {#if descriptionOverride}
-    {#if descriptionOverride(domainColumn, hoveredData[domainColumn])}
-      <p><em>{descriptionOverride(domainColumn, hoveredData[domainColumn])}</em></p>
+    {#if isPinned}
+      <div class="pin-header">
+        <span class="pin-indicator">📌 Pinned</span>
+        <button class="unpin-btn" on:click={() => dispatch('unpin')}>✕</button>
+      </div>
     {/if}
-  {/if}
-  <p> {hoveredData.text}</p>
+    <h1>{@html highlightText(hoveredData.title, searchQuery)}</h1>
+    <span style="background: {colorScale(hoveredData[domainColumn])};">
+      {labelOverride ? labelOverride(domainColumn, hoveredData[domainColumn]) : hoveredData[domainColumn]}
+    </span>
+    <h2>{hoveredData.date.toISOString().split('T')[0]}</h2>
+    {#if descriptionOverride}
+      {#if descriptionOverride(domainColumn, hoveredData[domainColumn])}
+        <p><em>{descriptionOverride(domainColumn, hoveredData[domainColumn])}</em></p>
+      {/if}
+    {/if}
+    <p>{@html highlightText(hoveredData.text, searchQuery)}</p>
   {:else}
-  <p>Hover over a circle to see details here.</p>
+    <p class="placeholder-text">{isPinned ? 'Click on a circle to pin it here.' : 'Hover over a circle to see details here.'}</p>
   {/if}
 </div>
 
 <style>
   .detail-card {
-    position: absolute;
-    padding: 10px 12px;
-    border: 1px solid rgba(0, 0, 0, 0.15);
+    padding: 0;
     border-radius: 8px;
-    background: rgba(255, 255, 255, 0.98);
-    box-shadow: 0 8px 24px rgba(0,0,0,0.15);
-    max-width: 280px;
-    max-height: 50vh;
+    background: #fff;
+    height: 100%;
     overflow-y: auto;
-    line-height: 1.45;
-    pointer-events: none; /* don't block hover on canvas */
-    z-index: 10;
+    line-height: 1.5;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
   }
 
-
   h1,h2 {
-      margin: 0;
-      padding: 0;
-      font-weight: 300;
-      margin-bottom: 10px;
-      }
+    margin: 0;
+    padding: 0;
+    font-weight: 300;
+  }
 
   h1 {
-      font-size: 0.95rem;
-      font-weight: 600;
-      margin-bottom: 6px;
-      }
+    font-size: 1.1rem;
+    font-weight: 600;
+    line-height: 1.4;
+  }
 
   h2 {
-      font-size: 0.78rem;
-      text-transform: uppercase;
-      color: #555;
-      }
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    color: #555;
+  }
 
   span {
-      padding: 4px 6px;
-      display: inline-block;
-      vertical-align: bottom;
-      border-radius: 4px;
-      color: white;
-      margin-bottom: 8px;
-      font-size: 0.75rem;
-      }
+    padding: 4px 8px;
+    display: inline-block;
+    vertical-align: bottom;
+    border-radius: 4px;
+    color: white;
+    font-size: 0.8rem;
+    width: fit-content;
+  }
 
   p {
-      font-size: 0.85rem;
-      font-weight: 400;
-      margin: 0;
-    }
+    font-size: 0.9rem;
+    font-weight: 400;
+    margin: 0;
+    line-height: 1.6;
+  }
+
+  .placeholder-text {
+    color: #999;
+    font-style: italic;
+  }
+
+  /* Yellow highlighting for search terms */
+  :global(.detail-card mark) {
+    background-color: yellow;
+    color: black;
+    padding: 0 2px;
+    border-radius: 2px;
+  }
+
+  .pin-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem;
+    background: #e3f2fd;
+    border-radius: 6px;
+    margin-bottom: 0.5rem;
+  }
+
+  .pin-indicator {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #1976d2;
+  }
+
+  .unpin-btn {
+    background: transparent;
+    border: none;
+    font-size: 1.2rem;
+    cursor: pointer;
+    color: #666;
+    padding: 0;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+  }
+
+  .unpin-btn:hover {
+    background: rgba(0, 0, 0, 0.1);
+    color: #333;
+  }
 </style>

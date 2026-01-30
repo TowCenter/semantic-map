@@ -2,20 +2,21 @@
     import { onMount } from 'svelte';
     import { scaleLinear, scaleOrdinal } from 'd3-scale';
     import { max, min } from 'd3-array';
-  import DetailCard from './DetailCard.svelte';
   import { schemeCategory10 } from 'd3-scale-chromatic';
   import { select, zoom, zoomIdentity } from 'd3';
-    
+
   export let data = [];
   export let domainColumn = "";
   export let opacity = 1;
   export let selectedValues = new Set();
-  export let searchQuery = ""; 
+  export let searchQuery = "";
   export let showAnnotations = true;
   export let highlightedData = [];
   export let startDate = null;  // Add these new props
   export let endDate = null;    // Add these new props
   export let uniqueValues = [];
+  export let hoveredData = null; // Export hoveredData for binding
+  export let selectedData = null; // Export selectedData for pinning
 
 
     // let annotations = [
@@ -28,14 +29,13 @@
   let canvas;
   let containerEl; // wrapper element whose size controls the canvas
     let ctx;
-    
+
     let containerWidth = 800;
     let containerHeight = 600;
-    
+
     const margin = { top: 20, right: 20, bottom: 20, left: 20 };
     const radius = 6;
-    
-  let hoveredData = null;
+
   let lastHoveredData = null;
   let t = zoomIdentity; // d3-zoom transform
   const MIN_SCALE = 0.5;
@@ -46,12 +46,6 @@
   // d3-zoom behavior and selection to allow programmatic zooming
   let zoomBehavior;
   let canvasSel;
-
-    // Tooltip position in CSS pixels within the chart container
-    let tooltipX = 0;
-    let tooltipY = 0;
-    const TOOLTIP_MAX_W = 280; // px, used for simple boundary checks
-    const TOOLTIP_H = 160;     // approximate height for clamping
 
     // Helper function to check if text matches search query (supports regex)
     function matchesSearchQuery(text, query) {
@@ -253,8 +247,22 @@
 
       ctx.setLineDash([]); // Reset line dash
 
-      if (hoveredData) {
-        // Compute hovered point position in world space
+      // Draw selected (pinned) point with distinct styling
+      if (selectedData) {
+        const baseX = margin.left + xScale(selectedData.x);
+        const baseY = margin.top + yScale(selectedData.y);
+        ctx.beginPath();
+        ctx.arc(baseX, baseY, Math.max(0.5, (radius + 2) / t.k), 0, Math.PI * 2);
+        ctx.fillStyle = colorScale(selectedData[domainColumn]);
+        ctx.globalAlpha = 1;
+        ctx.fill();
+        ctx.strokeStyle = '#1976d2';
+        ctx.lineWidth = Math.max(1, 3 / t.k);
+        ctx.stroke();
+      }
+
+      // Draw hovered point (only if different from selected)
+      if (hoveredData && hoveredData !== selectedData) {
         const baseX = margin.left + xScale(hoveredData.x);
         const baseY = margin.top + yScale(hoveredData.y);
         ctx.beginPath();
@@ -265,24 +273,6 @@
         ctx.strokeStyle = 'black';
         ctx.lineWidth = Math.max(1, 2 / t.k);
         ctx.stroke();
-
-        // Compute tooltip screen position taking zoom into account
-  const [zx, zy] = [t.applyX(baseX), t.applyY(baseY)];
-
-        // Prefer to the right; flip if near right edge
-  let tx = zx + 12; // offset from point
-        if (tx + TOOLTIP_MAX_W > containerWidth - margin.right) {
-          tx = zx - 12 - TOOLTIP_MAX_W;
-        }
-
-        // Vertical placement and clamping
-        let ty = zy - TOOLTIP_H * 0.5; // center vertically around point
-        const topBound = margin.top + 8;
-        const bottomBound = containerHeight - margin.bottom - (TOOLTIP_H + 8);
-        ty = Math.max(topBound, Math.min(ty, bottomBound));
-
-        tooltipX = tx;
-        tooltipY = ty;
       }
 
       ctx.restore();
@@ -371,14 +361,31 @@
         return isInRange && isActive;
       });
 
-      if (!foundData) return;
-
-      // Try common link fields
-      const url = foundData.url || foundData.link || foundData.href || foundData.permalink;
-      if (url && typeof window !== 'undefined') {
-        // open in new tab safely
-        window.open(url, '_blank', 'noopener,noreferrer');
+      if (!foundData) {
+        // Clicking on empty space unpins
+        selectedData = null;
+        draw();
+        return;
       }
+
+      // If Ctrl/Cmd is held, open URL in new tab (if available)
+      if (event.ctrlKey || event.metaKey) {
+        const url = foundData.url || foundData.link || foundData.href || foundData.permalink;
+        if (url && typeof window !== 'undefined') {
+          window.open(url, '_blank', 'noopener,noreferrer');
+        }
+        return;
+      }
+
+      // Otherwise, pin/unpin the clicked point
+      if (selectedData === foundData) {
+        // Clicking the same point again unpins it
+        selectedData = null;
+      } else {
+        // Pin the new point
+        selectedData = foundData;
+      }
+      draw();
     }
     
     function handleMouseLeave() {
@@ -423,7 +430,7 @@
   // (Manual pan/zoom handlers removed in favor of d3-zoom)
     
     $: if (ctx) {
-        opacity, selectedValues, searchQuery, showAnnotations, domainColumn, startDate, endDate; // Watch these props
+        opacity, selectedValues, searchQuery, showAnnotations, domainColumn, startDate, endDate, selectedData; // Watch these props
         if (data.length) draw(); // Redraw when any of these change
     }
 
@@ -458,9 +465,6 @@
       on:mouseleave={handleMouseLeave}
       on:click={handleClick}
     ></canvas>
-    {#if hoveredData}
-      <DetailCard {hoveredData} {data} {domainColumn} {colorScale} posX={tooltipX} posY={tooltipY} />
-    {/if}
 </div>
 
 <style>
