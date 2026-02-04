@@ -1082,4 +1082,53 @@
     font-size: 0.8rem;
     color: #555;
   }
+
+  /* Responsive layout for smaller screens (13-inch laptops and smaller) */
+  @media (max-width: 1440px) {
+    .content {
+      display: grid;
+      grid-template-columns: 250px 1fr;
+      grid-template-rows: 1fr 250px;
+      gap: 1rem;
+    }
+
+    .filter-panel {
+      grid-column: 1;
+      grid-row: 1 / 3;
+      width: 250px;
+    }
+
+    .scatterplot-container {
+      grid-column: 2;
+      grid-row: 1;
+      min-height: 300px;
+    }
+
+    .detail-panel {
+      grid-column: 2;
+      grid-row: 2;
+      width: auto;
+      height: 250px;
+      max-height: 250px;
+      min-height: 250px;
+    }
+  }
+
+  /* Fine-tune for very small screens */
+  @media (max-width: 768px) {
+    .content {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .filter-panel {
+      width: 100%;
+      max-height: 300px;
+    }
+
+    .detail-panel {
+      width: 100%;
+      max-height: 250px;
+    }
+  }
 </style>

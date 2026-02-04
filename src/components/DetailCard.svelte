@@ -50,11 +50,24 @@
         <button class="unpin-btn" on:click={() => dispatch('unpin')}>✕</button>
       </div>
     {/if}
-    <h1>{@html highlightText(hoveredData.title, searchQuery)}</h1>
-    <span style="background: {colorScale(hoveredData[domainColumn])};">
-      {labelOverride ? labelOverride(domainColumn, hoveredData[domainColumn]) : hoveredData[domainColumn]}
-    </span>
-    <h2>{hoveredData.date.toISOString().split('T')[0]}</h2>
+    {#if hoveredData.url || hoveredData.link || hoveredData.href || hoveredData.permalink}
+      <a
+        href={hoveredData.url || hoveredData.link || hoveredData.href || hoveredData.permalink}
+        target="_blank"
+        rel="noopener noreferrer"
+        class="title-link"
+      >
+        <h1>{@html highlightText(hoveredData.title, searchQuery)}</h1>
+      </a>
+    {:else}
+      <h1>{@html highlightText(hoveredData.title, searchQuery)}</h1>
+    {/if}
+    <div class="metadata-row">
+      <span style="background: {colorScale(hoveredData[domainColumn])};">
+        {labelOverride ? labelOverride(domainColumn, hoveredData[domainColumn]) : hoveredData[domainColumn]}
+      </span>
+      <h2>{hoveredData.date.toISOString().split('T')[0]}</h2>
+    </div>
     {#if descriptionOverride}
       {#if descriptionOverride(domainColumn, hoveredData[domainColumn])}
         <p><em>{descriptionOverride(domainColumn, hoveredData[domainColumn])}</em></p>
@@ -89,6 +102,24 @@
     font-size: 1.1rem;
     font-weight: 600;
     line-height: 1.4;
+  }
+
+  .title-link {
+    text-decoration: none;
+    color: inherit;
+    display: block;
+  }
+
+  .title-link:hover h1 {
+    color: #1976d2;
+    text-decoration: underline;
+  }
+
+  .metadata-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
   }
 
   h2 {
