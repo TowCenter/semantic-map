@@ -106,13 +106,18 @@
 
   .title-link {
     text-decoration: none;
-    color: inherit;
+    color: #1976d2;
     display: block;
+    cursor: pointer;
+  }
+
+  .title-link h1 {
+    color: #1976d2;
   }
 
   .title-link:hover h1 {
-    color: #1976d2;
     text-decoration: underline;
+    color: #1565c0;
   }
 
   .metadata-row {
