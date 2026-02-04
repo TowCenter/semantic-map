@@ -1207,6 +1207,9 @@
   .progress-label {
     font-size: 0.8rem;
     color: #555;
+    font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+    min-width: 180px;
+    text-align: left;
   }
 
   /* Responsive layout for smaller screens (13-inch laptops and smaller) */
