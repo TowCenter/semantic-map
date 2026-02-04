@@ -1,6 +1,7 @@
 <script>
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import Papa from "papaparse";
+  import JSZip from "jszip";
   import Scatterplot from "./components/Scatterplot.svelte";
   import RangeSlider from "./components/RangeSlider.svelte";
   import DetailCard from "./components/DetailCard.svelte";
@@ -106,7 +107,7 @@
 
   // Loading/progress state
   let isLoading = false;
-  let loadPhase = "idle"; // 'downloading' | 'parsing' | 'idle'
+  let loadPhase = "idle"; // 'downloading' | 'unzipping' | 'parsing' | 'idle'
   let loadBytes = 0;
   let loadTotal = 0;
   let loadProgress = 0; // 0-100 when total known
@@ -132,8 +133,9 @@
       loadTotal = 0;
       loadProgress = 0;
 
-      // Determine the final CSV URL once on mount
+      // Determine the final data URL once on mount
       resolvedDataUrl = resolveDataUrl();
+      const isZipFile = resolvedDataUrl.toLowerCase().endsWith('.zip');
 
       const response = await fetch(resolvedDataUrl, {
         mode: "cors",
@@ -144,7 +146,7 @@
       const len = response.headers.get("content-length");
       loadTotal = len ? parseInt(len, 10) : 0;
 
-      let csvText = "";
+      let dataBytes;
       if (response.body && response.body.getReader) {
         const reader = response.body.getReader();
         const chunks = [];
@@ -166,19 +168,60 @@
           full.set(c, offset);
           offset += c.byteLength;
         }
-        csvText = new TextDecoder().decode(full);
-        console.log("CSV head:", csvText.split("\n").slice(0, 5).join("\n"));
+        dataBytes = full;
       } else {
         // Fallback without streaming/progress
-        csvText = await response.text();
+        const arrayBuffer = await response.arrayBuffer();
+        dataBytes = new Uint8Array(arrayBuffer);
       }
 
-      // Parse phase (indeterminate)
+      let csvText = "";
+      if (isZipFile) {
+        // Unzip phase - give UI time to update
+        loadPhase = "unzipping";
+        await tick();
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        const zip = new JSZip();
+        const zipContent = await zip.loadAsync(dataBytes);
+
+        // Find first CSV file in the zip
+        const csvFile = Object.keys(zipContent.files).find(name =>
+          name.toLowerCase().endsWith('.csv') && !zipContent.files[name].dir
+        );
+
+        if (!csvFile) {
+          throw new Error("No CSV file found in ZIP archive");
+        }
+
+        console.log(`Extracting ${csvFile} from ZIP...`);
+        csvText = await zipContent.files[csvFile].async("text");
+        console.log("CSV head:", csvText.split("\n").slice(0, 5).join("\n"));
+
+        // Give UI time to show unzipping completed
+        await new Promise(resolve => setTimeout(resolve, 100));
+      } else {
+        // Regular CSV file
+        csvText = new TextDecoder().decode(dataBytes);
+        console.log("CSV head:", csvText.split("\n").slice(0, 5).join("\n"));
+
+        // Give UI time after download completes
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+
+      // Parse phase (indeterminate) - give UI time to update
       loadPhase = "parsing";
-      await Promise.resolve(parseCSV(csvText));
+      await tick(); // Ensure Svelte has flushed DOM updates
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Parse in Web Worker (non-blocking)
+      await parseCSV(csvText);
+
+      // Small delay before clearing loading state
+      await new Promise(resolve => setTimeout(resolve, 100));
       loadPhase = "idle";
     } catch (err) {
-      console.error("Failed to load CSV:", err);
+      console.error("Failed to load data:", err);
     } finally {
       isLoading = false;
     }
@@ -234,48 +277,61 @@
   $: maxAllowedIndex = allDates.length > 0 ? allDates.length - 1 : 0;
 
   function parseCSV(csvText) {
-    // Lowercase headers before parsing
-    const lines = csvText.split(/\r?\n/);
-    if (lines.length > 0) {
-      const headerLine = lines[0];
-      const lowerHeader = headerLine
-        .split(",")
-        .map((h) => h.trim().toLowerCase())
-        .join(",");
-      lines[0] = lowerHeader;
-      csvText = lines.join("\n");
-    }
-    const result = Papa.parse(csvText, { header: true });
-    data = result.data
-      .filter((d) => d.x && d.y && d.date)
-      .map((d, i) => ({
-        ...d,
-        x: +d.x,
-        y: +d.y,
-        date: new Date(d.date),
-        id: i,
-      }));
+    return new Promise((resolve, reject) => {
+      Papa.parse(csvText, {
+        header: true,
+        worker: false, // Disable worker mode to avoid serialization issues
+        transformHeader: (header) => header.trim().toLowerCase(),
+        complete: (result) => {
+          // Defer post-processing to keep UI responsive
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              try {
+                data = result.data
+                  .filter((d) => d.x && d.y && d.date)
+                  .map((d, i) => ({
+                    ...d,
+                    x: +d.x,
+                    y: +d.y,
+                    date: new Date(d.date),
+                    id: i,
+                  }));
 
-    columns = result.meta.fields || [];
-    allDates = [...new Set(data.map((d) => d.date.getTime()))]
-      .sort((a, b) => a - b)
-      .map((t) => new Date(t));
+                columns = result.meta.fields || [];
+                allDates = [...new Set(data.map((d) => d.date.getTime()))]
+                  .sort((a, b) => a - b)
+                  .map((t) => new Date(t));
 
-    startDate = allDates[0];
-    endDate = allDates[allDates.length - 1];
-    startDateIndex = 0;
-    endDateIndex = allDates.length - 1;
-    updateDateIndices();
+                startDate = allDates[0];
+                endDate = allDates[allDates.length - 1];
+                startDateIndex = 0;
+                endDateIndex = allDates.length - 1;
+                updateDateIndices();
 
-    if (domainColumn) {
-      uniqueValues = [
-        ...new Set(
-          data
-            .map((d) => d[domainColumn])
-            .filter((v) => v !== undefined && v !== null && v !== ""),
-        ),
-      ].sort((a, b) => String(a).localeCompare(String(b)));
-    }
+                if (domainColumn) {
+                  uniqueValues = [
+                    ...new Set(
+                      data
+                        .map((d) => d[domainColumn])
+                        .filter((v) => v !== undefined && v !== null && v !== ""),
+                    ),
+                  ].sort((a, b) => String(a).localeCompare(String(b)));
+                }
+
+                resolve();
+              } catch (err) {
+                console.error("Post-processing error:", err);
+                reject(err);
+              }
+            });
+          });
+        },
+        error: (error) => {
+          console.error("Papa Parse error:", error);
+          reject(error);
+        }
+      });
+    });
   }
 
   function handleDomainChange(event) {
@@ -389,13 +445,79 @@
     return date ? date.toISOString().split("T")[0] : "";
   }
 
-  function handleFileUpload(event) {
+  async function handleFileUpload(event) {
     const file = event.target.files[0];
     if (file) {
-      const reader = new FileReader();
       showAnnotations = false;
-      reader.onload = (e) => parseCSV(e.target.result);
-      reader.readAsText(file);
+      const isZipFile = file.name.toLowerCase().endsWith('.zip');
+
+      if (isZipFile) {
+        try {
+          isLoading = true;
+          loadPhase = "unzipping";
+          await tick();
+          await new Promise(resolve => setTimeout(resolve, 100));
+
+          const arrayBuffer = await file.arrayBuffer();
+          const zip = new JSZip();
+          const zipContent = await zip.loadAsync(arrayBuffer);
+
+          // Find first CSV file in the zip
+          const csvFile = Object.keys(zipContent.files).find(name =>
+            name.toLowerCase().endsWith('.csv') && !zipContent.files[name].dir
+          );
+
+          if (!csvFile) {
+            throw new Error("No CSV file found in ZIP archive");
+          }
+
+          const csvText = await zipContent.files[csvFile].async("text");
+
+          // Give UI time to show unzipping completed
+          await new Promise(resolve => setTimeout(resolve, 100));
+
+          loadPhase = "parsing";
+          await tick(); // Ensure Svelte has flushed DOM updates
+          await new Promise(resolve => setTimeout(resolve, 100));
+
+          // Parse in Web Worker (non-blocking)
+          await parseCSV(csvText);
+
+          await new Promise(resolve => setTimeout(resolve, 100));
+          loadPhase = "idle";
+        } catch (err) {
+          console.error("Failed to load ZIP file:", err);
+        } finally {
+          isLoading = false;
+        }
+      } else {
+        try {
+          isLoading = true;
+
+          const reader = new FileReader();
+          const csvText = await new Promise((resolve, reject) => {
+            reader.onload = (e) => resolve(e.target.result);
+            reader.onerror = reject;
+            reader.readAsText(file);
+          });
+
+          // Give UI time after file loads
+          await new Promise(resolve => setTimeout(resolve, 100));
+
+          loadPhase = "parsing";
+          await tick();
+          await new Promise(resolve => setTimeout(resolve, 100));
+
+          await parseCSV(csvText);
+
+          await new Promise(resolve => setTimeout(resolve, 100));
+          loadPhase = "idle";
+        } catch (err) {
+          console.error("Failed to load CSV file:", err);
+        } finally {
+          isLoading = false;
+        }
+      }
     }
   }
 
@@ -532,11 +654,11 @@
         </details>
       </div>
 
-      <label for="file-upload">📁 Upload CSV:</label>
+      <label for="file-upload">📁 Upload CSV or ZIP:</label>
       <input
         id="file-upload"
         type="file"
-        accept=".csv"
+        accept=".csv,.zip"
         on:change={handleFileUpload}
       />
 
@@ -680,7 +802,9 @@
         <div class="progress-wrap">
           <div class="progress-header">
             {#if loadPhase === "downloading"}
-              Downloading CSV...
+              Downloading {resolvedDataUrl.toLowerCase().endsWith('.zip') ? 'ZIP' : 'CSV'}...
+            {:else if loadPhase === "unzipping"}
+              Unzipping...
             {:else if loadPhase === "parsing"}
               Parsing CSV...
             {:else}
@@ -1060,7 +1184,9 @@
     width: 40%;
     height: 100%;
     background: #4c8bf5;
-    animation: indet 1s infinite;
+    animation: indet 1s infinite linear;
+    will-change: left;
+    transform: translateZ(0); /* Force GPU acceleration */
   }
 
   #opacity-slider {
