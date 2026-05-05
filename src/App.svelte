@@ -75,6 +75,7 @@
   let showAnnotations = false;
   let hoveredData = null;
   let selectedData = null; // Pinned/clicked data
+  let previousDomainColumn = domainColumn;
 
   // Display selected data if available, otherwise show hovered data
   $: displayedData = selectedData || hoveredData;
@@ -87,22 +88,34 @@
   $: minDateFromData = allDates.length > 0 ? allDates[0] : null;
   $: maxDateFromData = allDates.length > 0 ? allDates[allDates.length - 1] : null;
 
-  // Only allow org or cluster as color-by options
-  $: allowedDomainColumns = columns.filter(
-    (c) => c === "org" || c === "state",
-  );
+  $: colorByColumns = columns.filter(Boolean);
   $: {
     // Wait until columns are known before adjusting the selected domain
     if (!columns || columns.length === 0) {
       // do nothing until parsed
-    } else if (
-      allowedDomainColumns.length &&
-      !allowedDomainColumns.includes(domainColumn)
-    ) {
-      domainColumn = allowedDomainColumns[0];
-    } else if (allowedDomainColumns.length === 0) {
+    } else if (colorByColumns.length && !colorByColumns.includes(domainColumn)) {
+      domainColumn = colorByColumns.includes("org")
+        ? "org"
+        : colorByColumns.includes("state")
+          ? "state"
+          : colorByColumns[0];
+    } else if (colorByColumns.length === 0) {
       domainColumn = "";
     }
+  }
+  $: uniqueValues = domainColumn
+    ? [
+        ...new Set(
+          data
+            .map((d) => d[domainColumn])
+            .filter((v) => v !== undefined && v !== null && v !== ""),
+        ),
+      ].sort((a, b) => String(a).localeCompare(String(b)))
+    : [];
+  $: if (domainColumn !== previousDomainColumn) {
+    selectedValues = new Set();
+    highlightedData = [];
+    previousDomainColumn = domainColumn;
   }
 
   // Loading/progress state
@@ -308,16 +321,6 @@
                 endDateIndex = allDates.length - 1;
                 updateDateIndices();
 
-                if (domainColumn) {
-                  uniqueValues = [
-                    ...new Set(
-                      data
-                        .map((d) => d[domainColumn])
-                        .filter((v) => v !== undefined && v !== null && v !== ""),
-                    ),
-                  ].sort((a, b) => String(a).localeCompare(String(b)));
-                }
-
                 resolve();
               } catch (err) {
                 console.error("Post-processing error:", err);
@@ -336,11 +339,6 @@
 
   function handleDomainChange(event) {
     domainColumn = event.target.value;
-    uniqueValues = domainColumn
-      ? [...new Set(data.map((d) => d[domainColumn]).filter(Boolean))].sort(
-          (a, b) => String(a).localeCompare(String(b)),
-        )
-      : [];
     selectedValues = new Set();
     showAnnotations = false;
   }
@@ -576,10 +574,12 @@
       isPlaying = false;
     }
 
-    // Reset domain to default ('org' if available, otherwise first allowed)
+    // Reset domain to default ('org' if available, then 'state', otherwise first column)
     const defaultDomain = columns.includes("org")
       ? "org"
-      : allowedDomainColumns[0] || "";
+      : columns.includes("state")
+        ? "state"
+        : colorByColumns[0] || "";
     domainColumn = defaultDomain;
 
     // Clear selection and highlights
@@ -672,7 +672,7 @@
               <li><strong>date</strong> - Date field for timeline filtering (ISO format recommended)</li>
               <li><strong>title</strong> - Article headline or title (searchable)</li>
               <li><strong>text</strong> - Article body or description (searchable)</li>
-              <li><strong>org or state</strong> - Categorical field for color-coding points (at least one required)</li>
+              <li><strong>Any additional column</strong> - Optional field for color-coding points</li>
             </ul>
             <p><strong>Optional columns:</strong></p>
             <ul>
@@ -691,7 +691,7 @@
         on:input={handleSearch}
       />
 
-      {#if allowedDomainColumns.length}
+      {#if colorByColumns.length}
         <label for="domain-column">🎨 Color by Column:</label>
         <select
           id="domain-column"
@@ -699,7 +699,7 @@
           bind:value={domainColumn}
         >
           <option value="" disabled>Select column</option>
-          {#each allowedDomainColumns as column}
+          {#each colorByColumns as column}
             <option value={column}>{column}</option>
           {/each}
         </select>
